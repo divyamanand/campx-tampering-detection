@@ -44,12 +44,13 @@ interface UseSummarizerReturn {
  * Single Responsibility: Handle log summarization and formatting
  * Separates summarization logic from processing logic (SRP)
  *
- * @param {FileSystemDirectoryHandle} logsDirectory - Directory handle from LogWriter.selectLogsDirectory()
+ * @param {string} logsDirectory - Path to the directory containing logs
+ * @param {string} logFileName - Name of the specific log file to read
  * @returns {Object} Object containing:
  *   - summarizeLogs: Function to read and format logs
  *   - formatLogSummary: Function to format individual log entries
  */
-export const useSummarizer = (logsDirectory: FileSystemDirectoryHandle | null): UseSummarizerReturn => {
+export const useSummarizer = (logsDirectory: string | null, logFileName: string | null): UseSummarizerReturn => {
   /**
    * Format a single log entry into summary format
    * Aggregates page-level data into file-level summary
@@ -108,7 +109,7 @@ export const useSummarizer = (logsDirectory: FileSystemDirectoryHandle | null): 
    * @returns {Promise<Object>} Object containing:
    *   - summary: Array of formatted log summaries
    *   - verification: { filesToRetry, bestCounts }
-   * @throws {Error} If logsDirectory is not set
+   * @throws {Error} If logsDirectory or logFileName is not set
    */
   const summarizeLogs = useCallback(async (): Promise<SummarizeLogs> => {
     try {
@@ -116,8 +117,12 @@ export const useSummarizer = (logsDirectory: FileSystemDirectoryHandle | null): 
         throw new Error("Logs directory not selected. Please select a logs directory first.");
       }
 
-      // Read logs from the selected directory using correct LogWriter method
-      const logsData = await LogWriter.readLogsFile(logsDirectory);
+      if (!logFileName) {
+        throw new Error("No log file available. Please process some files first.");
+      }
+
+      // Read logs from the selected log file
+      const logsData = await LogWriter.readLogsFile(logsDirectory, logFileName);
 
       if (!logsData || Object.keys(logsData).length === 0) {
         console.warn("No logs found");
@@ -130,7 +135,7 @@ export const useSummarizer = (logsDirectory: FileSystemDirectoryHandle | null): 
       });
 
       // Verify logs and get pages that need retry
-      const verification = await LogWriter.verifyAndGetRetryPages(logsDirectory);
+      const verification = await LogWriter.verifyAndGetRetryPages(logsDirectory, logFileName);
 
       // Display the summary in table format
       console.table(summary);
@@ -145,7 +150,7 @@ export const useSummarizer = (logsDirectory: FileSystemDirectoryHandle | null): 
       console.error("Error summarizing logs:", error);
       throw error;
     }
-  }, [logsDirectory, formatLogSummary]);
+  }, [logsDirectory, logFileName, formatLogSummary]);
 
   /**
    * Export summary to a file or display

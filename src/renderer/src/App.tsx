@@ -29,6 +29,7 @@ const App = () => {
     filePageProgress,
     currentFileIndex,
     totalFiles,
+    currentLogFileName,
     processBatch,
     getSummary,
   } = useBatchProcessor(3, logsDirectory) // Batch size of 3, pass logsDirectory
@@ -128,7 +129,7 @@ const App = () => {
         </div>
       </div>
 
-      {/* Logs Directory Selection */}
+      {/* Processing Directory Selection */}
       <div style={styles.logsDirectorySection}>
         <button
           onClick={selectLogsDirectory}
@@ -140,11 +141,11 @@ const App = () => {
             backgroundColor: logsDirectory ? "#10b981" : "#6366f1",
           }}
         >
-          {logsDirectory ? "✓ Logs Directory Selected" : "📁 Select Logs Directory"}
+          {logsDirectory ? "✓ Processing Directory Selected" : "📁 Select Processing Directory"}
         </button>
         {!logsDirectory && (
           <p style={styles.logsDirectoryWarning}>
-            ⚠️ Logs directory must be selected before processing
+            ⚠️ Processing directory must be selected before processing (logs will be saved in /logs subdirectory)
           </p>
         )}
       </div>
@@ -334,6 +335,7 @@ const App = () => {
               results={results}
               elapsedTime={elapsedTime}
               logsDirectory={logsDirectory}
+              logFileName={currentLogFileName}
               onClose={() => setShowSummary(false)}
             />
           )}

@@ -11,6 +11,7 @@ interface SummaryProps {
   }>
   elapsedTime: number
   logsDirectory: string | null
+  logFileName: string | null
   onClose: () => void
 }
 
@@ -33,8 +34,8 @@ interface VerificationData {
  * Single Responsibility: Display and format summary data
  * Uses useSummarizer hook for data formatting logic (SRP principle)
  */
-const Summary: FC<SummaryProps> = ({ results, elapsedTime, logsDirectory, onClose }) => {
-  const { summarizeLogs } = useSummarizer(logsDirectory)
+const Summary: FC<SummaryProps> = ({ results, elapsedTime, logsDirectory, logFileName, onClose }) => {
+  const { summarizeLogs } = useSummarizer(logsDirectory, logFileName)
   const [summaryData, setSummaryData] = useState<SummaryLogData[]>([])
   const [verificationData, setVerificationData] = useState<VerificationData>({ filesToRetry: {}, bestCounts: {} })
   const [loading, setLoading] = useState(true)

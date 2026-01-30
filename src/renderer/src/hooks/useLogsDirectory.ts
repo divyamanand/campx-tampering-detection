@@ -2,42 +2,43 @@ import { useState } from "react";
 import { LogWriter } from "../LogWriter";
 
 interface UseLogsDirectoryReturn {
-  logsDirectory: FileSystemDirectoryHandle | null
-  selectLogsDirectory: () => Promise<FileSystemDirectoryHandle>
+  logsDirectory: string | null
+  selectLogsDirectory: () => Promise<string>
   clearLogsDirectory: () => void
 }
 
 /**
- * useLogsDirectory - Custom hook for managing logs directory selection
+ * useLogsDirectory - Custom hook for managing processing directory selection
  *
- * Single Responsibility: Handle logs directory state and operations
+ * Single Responsibility: Handle directory selection and logs folder creation
  * Separates directory management from processing logic (SRP)
  *
  * @returns {Object} Object containing:
- *   - logsDirectory: Current logs directory handle
- *   - selectLogsDirectory: Function to select logs directory
+ *   - logsDirectory: Current directory path
+ *   - selectLogsDirectory: Function to select directory and create logs folder
  *   - clearLogsDirectory: Function to clear the selected directory
  */
 export const useLogsDirectory = (): UseLogsDirectoryReturn => {
-  const [logsDirectory, setLogsDirectory] = useState<FileSystemDirectoryHandle | null>(null);
+  const [logsDirectory, setLogsDirectory] = useState<string | null>(null);
 
   /**
-   * Select logs directory for storing results
-   * Opens a directory picker dialog
+   * Select processing directory and create logs folder
+   * Opens a directory picker dialog and creates /logs subdirectory
    */
-  const selectLogsDirectory = async (): Promise<FileSystemDirectoryHandle> => {
+  const selectLogsDirectory = async (): Promise<string> => {
     try {
-      const dirHandle = await LogWriter.selectLogsDirectory();
-      setLogsDirectory(dirHandle);
-      return dirHandle;
+      const dirPath = await LogWriter.selectLogsDirectory();
+      await LogWriter.createLogsFolder(dirPath);
+      setLogsDirectory(dirPath);
+      return dirPath;
     } catch (error) {
-      console.error("Error selecting logs directory:", error);
+      console.error("Error selecting directory:", error);
       throw error;
     }
   };
 
   /**
-   * Clear the currently selected logs directory
+   * Clear the currently selected directory
    */
   const clearLogsDirectory = () => {
     setLogsDirectory(null);
