@@ -2,45 +2,45 @@ import { useState } from "react";
 import { createPDFManager } from "../PDFManager";
 import { LogWriter } from "../LogWriter";
 
-interface PageInfo {
-  pageNumber: number
-  totalPages: number
-}
-
-interface ProcessResult {
-  fileName: string
-  success: boolean
-  totalPages: number
-  results: Record<string, unknown>
-  error: string | null
+interface FileResult {
+  fileName: string;
+  success: boolean;
+  totalPages: number;
+  results: Record<string, unknown>;
+  error: string | null;
 }
 
 interface BatchProgress {
-  status: "processing" | "completed" | "failed" | "queued"
-  result: ProcessResult | null
+  [fileName: string]: {
+    status: "processing" | "completed" | "failed" | "queued";
+    result: FileResult | null;
+  };
 }
 
 interface FilePageProgress {
-  currentPage: number
-  totalPages: number
+  [fileName: string]: {
+    currentPage: number;
+    totalPages: number;
+  };
+}
+
+interface SummaryStats {
+  totalPages: number;
+  successCount: number;
+  failedCount: number;
 }
 
 interface UseBatchProcessorReturn {
-  processing: boolean
-  results: ProcessResult[]
-  currentBatch: File[]
-  batchProgress: Record<string, BatchProgress>
-  filePageProgress: Record<string, FilePageProgress>
-  currentFileIndex: number
-  totalFiles: number
-  currentLogFileName: string | null
-  processBatch: (
-    selectedFiles: File[],
-    onStart?: () => void,
-    onComplete?: () => void
-  ) => Promise<void>
-  getSummary: () => { totalPages: number; successCount: number; failedCount: number }
-  reset: () => void
+  processing: boolean;
+  results: FileResult[];
+  currentBatch: File[];
+  batchProgress: BatchProgress;
+  filePageProgress: FilePageProgress;
+  currentFileIndex: number;
+  totalFiles: number;
+  processBatch: (selectedFiles: File[], onStart?: () => void, onComplete?: () => void) => Promise<void>;
+  getSummary: () => SummaryStats;
+  reset: () => void;
 }
 
 /**
@@ -50,36 +50,29 @@ interface UseBatchProcessorReturn {
  * Only handles file processing - timer and logs directory managed separately (SRP)
  *
  * @param {number} batchSize - Number of files to process in parallel
- * @param {string} logsDirectory - Path to the directory for storing logs
- * @returns {Object} Batch processing state and methods
+ * @param {FileSystemDirectoryHandle} logsDirectory - Directory handle for storing logs
+ * @returns {UseBatchProcessorReturn} Batch processing state and methods
  */
 export const useBatchProcessor = (
-  batchSize = 5,
-  logsDirectory: string | null = null
+  batchSize: number = 5,
+  logsDirectory: FileSystemDirectoryHandle | null = null
 ): UseBatchProcessorReturn => {
   // File processing state
   const [files, setFiles] = useState<File[]>([]);
   const [processing, setProcessing] = useState(false);
-  const [results, setResults] = useState<ProcessResult[]>([]);
+  const [results, setResults] = useState<FileResult[]>([]);
   const [currentBatch, setCurrentBatch] = useState<File[]>([]);
-  const [batchProgress, setBatchProgress] = useState<Record<string, BatchProgress>>({});
-  const [filePageProgress, setFilePageProgress] = useState<Record<string, FilePageProgress>>({});
+  const [batchProgress, setBatchProgress] = useState<BatchProgress>({});
+  const [filePageProgress, setFilePageProgress] = useState<FilePageProgress>({});
 
   // Counter state
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [totalFiles, setTotalFiles] = useState(0);
 
-  // Log file tracking
-  const [currentLogFileName, setCurrentLogFileName] = useState<string | null>(null);
-
   /**
    * Process a single file with provided PDFManager instance
    */
-  const processFileWithManager = async (
-    file: File,
-    pdfManager: ReturnType<typeof createPDFManager>,
-    logFileName: string | null
-  ): Promise<{ result: ProcessResult; logFileName: string | null }> => {
+  const processFileWithManager = async (file: File, pdfManager: ReturnType<typeof createPDFManager>): Promise<FileResult> => {
     try {
       // Mark file as processing
       setBatchProgress((prev) => ({
@@ -94,7 +87,7 @@ export const useBatchProcessor = (
       }));
 
       // Pass callback to track page completion
-      const fileResult = await pdfManager.processFile(file, (pageInfo: PageInfo) => {
+      const fileResult = await pdfManager.processFile(file, (pageInfo) => {
         // Update page progress in real-time
         setFilePageProgress((prev) => ({
           ...prev,
@@ -105,7 +98,7 @@ export const useBatchProcessor = (
         }));
       });
 
-      const result: ProcessResult = {
+      const result = {
         fileName: file.name,
         success: fileResult.success,
         totalPages: fileResult.totalPages,
@@ -123,25 +116,18 @@ export const useBatchProcessor = (
       }));
 
       // Append result to logs
-      let resultLogFileName = logFileName;
       if (logsDirectory) {
-        const { logFileName: newFileName } = await LogWriter.appendFileResults(
-          logsDirectory,
-          logFileName,
-          file.name,
-          result
-        );
-        resultLogFileName = newFileName;
+        await LogWriter.appendFileResults(logsDirectory, file.name, result);
       }
 
-      return { result, logFileName: resultLogFileName };
+      return result;
     } catch (error) {
-      const result: ProcessResult = {
+      const result: FileResult = {
         fileName: file.name,
         success: false,
         totalPages: 0,
         results: {},
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       };
 
       // Mark file as failed
@@ -151,18 +137,11 @@ export const useBatchProcessor = (
       }));
 
       // Append failed result to logs
-      let resultLogFileName = logFileName;
       if (logsDirectory) {
-        const { logFileName: newFileName } = await LogWriter.appendFileResults(
-          logsDirectory,
-          logFileName,
-          file.name,
-          result
-        );
-        resultLogFileName = newFileName;
+        await LogWriter.appendFileResults(logsDirectory, file.name, result);
       }
 
-      return { result, logFileName: resultLogFileName };
+      return result;
     }
   };
 
@@ -176,7 +155,7 @@ export const useBatchProcessor = (
     selectedFiles: File[],
     onStart?: () => void,
     onComplete?: () => void
-  ) => {
+  ): Promise<void> => {
     if (selectedFiles.length === 0) {
       alert("No files selected");
       return;
@@ -193,15 +172,13 @@ export const useBatchProcessor = (
     setProcessing(true);
     setResults([]);
     setCurrentFileIndex(0);
-    setCurrentLogFileName(null);
     setBatchProgress({});
     setFilePageProgress({});
 
     // Notify that processing has started
     if (onStart) onStart();
 
-    const processedResults: ProcessResult[] = [];
-    let batchLogFileName: string | null = null;
+    const processedResults = [];
 
     try {
       // Process files in batches
@@ -218,30 +195,23 @@ export const useBatchProcessor = (
 
         // Process batch in parallel with the same PDFManager instance
         const batchPromises = batch.map((file) =>
-          processFileWithManager(file, pdfManager, batchLogFileName)
+          processFileWithManager(file, pdfManager)
         );
-        const batchResultsWithLogFile = await Promise.all(batchPromises);
-
-        // Extract results and update log filename for next iteration
-        const batchResults = batchResultsWithLogFile.map((item) => item.result);
-        if (batchResultsWithLogFile.length > 0 && batchResultsWithLogFile[0].logFileName) {
-          batchLogFileName = batchResultsWithLogFile[0].logFileName;
-        }
+        const batchResults = await Promise.all(batchPromises);
 
         processedResults.push(...batchResults);
         setCurrentFileIndex(Math.min(i + batchSize, selectedFiles.length));
         setResults([...processedResults]);
-        setCurrentLogFileName(batchLogFileName);
       }
     } catch (error) {
       console.error("Batch processing error:", error);
-      alert("Error during batch processing: " + (error as Error).message);
+      alert("Error during batch processing: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setProcessing(false);
       setCurrentBatch([]);
       setBatchProgress({});
       setFilePageProgress({});
-
+      
       // Notify that processing has completed
       if (onComplete) onComplete();
     }
@@ -250,7 +220,7 @@ export const useBatchProcessor = (
   /**
    * Calculate summary statistics
    */
-  const getSummary = () => {
+  const getSummary = (): SummaryStats => {
     let totalPages = 0;
     let successCount = 0;
     let failedCount = 0;
@@ -270,7 +240,7 @@ export const useBatchProcessor = (
   /**
    * Reset all state
    */
-  const reset = () => {
+  const reset = (): void => {
     setFiles([]);
     setProcessing(false);
     setResults([]);
@@ -279,7 +249,6 @@ export const useBatchProcessor = (
     setFilePageProgress({});
     setCurrentFileIndex(0);
     setTotalFiles(0);
-    setCurrentLogFileName(null);
   };
 
   return {
@@ -291,7 +260,6 @@ export const useBatchProcessor = (
     filePageProgress,
     currentFileIndex,
     totalFiles,
-    currentLogFileName,
 
     // Methods
     processBatch,

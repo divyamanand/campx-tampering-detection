@@ -1,4 +1,4 @@
-import { useRef, useState, ChangeEvent, CSSProperties } from "react"
+import { useRef, useState, ChangeEvent } from "react"
 import { useBatchProcessor } from "./hooks/useBatchProcessor"
 import { useTimer } from "./hooks/useTimer"
 import { useLogsDirectory } from "./hooks/useLogsDirectory"
@@ -29,17 +29,16 @@ const App = () => {
     filePageProgress,
     currentFileIndex,
     totalFiles,
-    currentLogFileName,
     processBatch,
     getSummary,
-  } = useBatchProcessor(3, logsDirectory) // Batch size of 3, pass logsDirectory
+  } = useBatchProcessor(8, logsDirectory) // Batch size of 3, pass logsDirectory
 
   /**
    * Handle file selection and start batch processing
    */
-  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const selectedFiles = Array.from(e.target.files || [])
-
+    
     // Check if logs directory is selected
     if (!logsDirectory) {
       const userWantsToSelect = window.confirm(
@@ -49,7 +48,7 @@ const App = () => {
         try {
           await selectLogsDirectory();
         } catch (error) {
-          alert("Error selecting logs directory: " + (error as Error).message);
+          alert("Error selecting logs directory: " + error.message);
           return;
         }
       } else {
@@ -129,7 +128,7 @@ const App = () => {
         </div>
       </div>
 
-      {/* Processing Directory Selection */}
+      {/* Logs Directory Selection */}
       <div style={styles.logsDirectorySection}>
         <button
           onClick={selectLogsDirectory}
@@ -141,11 +140,11 @@ const App = () => {
             backgroundColor: logsDirectory ? "#10b981" : "#6366f1",
           }}
         >
-          {logsDirectory ? "✓ Processing Directory Selected" : "📁 Select Processing Directory"}
+          {logsDirectory ? "✓ Logs Directory Selected" : "📁 Select Logs Directory"}
         </button>
         {!logsDirectory && (
           <p style={styles.logsDirectoryWarning}>
-            ⚠️ Processing directory must be selected before processing (logs will be saved in /logs subdirectory)
+            ⚠️ Logs directory must be selected before processing
           </p>
         )}
       </div>
@@ -173,7 +172,7 @@ const App = () => {
             {currentBatch.map((file) => {
               const progress = batchProgress[file.name]
               const status = progress?.status || "queued"
-
+              
               return (
                 <div
                   key={file.name}
@@ -335,7 +334,6 @@ const App = () => {
               results={results}
               elapsedTime={elapsedTime}
               logsDirectory={logsDirectory}
-              logFileName={currentLogFileName}
               onClose={() => setShowSummary(false)}
             />
           )}
@@ -355,7 +353,7 @@ const App = () => {
 }
 
 // Inline styles for layout elements
-const styles: Record<string, CSSProperties> = {
+const styles: Record<string, Record<string, string | number>> = {
   progressContainer: {
     marginBottom: "2rem",
     marginTop: "1rem",

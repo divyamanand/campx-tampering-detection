@@ -1,41 +1,27 @@
 import { useCallback } from "react";
 import { LogWriter } from "../LogWriter";
 
-interface CodeObject {
-  QRCode?: boolean
-  Code128?: boolean
-  [key: string]: unknown
+interface FormattedSummary {
+  fileName: string;
+  totalCodesCount: number;
+  qrCodesCount: number;
+  barcodesCount: number;
+  codesOnEveryPage: number[];
+  hasErrors: boolean;
 }
 
-interface PageData {
-  codes?: CodeObject[]
-  success?: boolean
-  errors?: unknown[]
-}
-
-interface FormattedLogSummary {
-  fileName: string
-  totalCodesCount: number
-  qrCodesCount: number
-  barcodesCount: number
-  codesOnEveryPage: number[]
-  hasErrors: boolean
-}
-
-interface VerificationData {
-  filesToRetry: Record<string, number[]>
-  bestCounts: Record<string, unknown>
-}
-
-interface SummarizeLogs {
-  summary: FormattedLogSummary[]
-  verification: VerificationData
+interface SummarizerResult {
+  summary: FormattedSummary[];
+  verification: {
+    filesToRetry: Record<string, number[]>;
+    bestCounts: Record<string, Record<string, number>>;
+  };
 }
 
 interface UseSummarizerReturn {
-  summarizeLogs: () => Promise<SummarizeLogs>
-  formatLogSummary: (fileName: string, fileLog: Record<string, PageData>) => FormattedLogSummary
-  exportSummary: (summary: FormattedLogSummary[]) => Promise<FormattedLogSummary[]>
+  summarizeLogs: () => Promise<SummarizerResult>;
+  formatLogSummary: (fileName: string, fileLog: any) => FormattedSummary;
+  exportSummary: (summary: FormattedSummary[]) => Promise<FormattedSummary[]>;
 }
 
 /**
@@ -44,85 +30,77 @@ interface UseSummarizerReturn {
  * Single Responsibility: Handle log summarization and formatting
  * Separates summarization logic from processing logic (SRP)
  *
- * @param {string} logsDirectory - Path to the directory containing logs
- * @param {string} logFileName - Name of the specific log file to read
- * @returns {Object} Object containing:
+ * @param {FileSystemDirectoryHandle} logsDirectory - Directory handle from LogWriter.selectLogsDirectory()
+ * @returns {UseSummarizerReturn} Object containing:
  *   - summarizeLogs: Function to read and format logs
  *   - formatLogSummary: Function to format individual log entries
  */
-export const useSummarizer = (logsDirectory: string | null, logFileName: string | null): UseSummarizerReturn => {
+export const useSummarizer = (logsDirectory: FileSystemDirectoryHandle | null): UseSummarizerReturn => {
   /**
    * Format a single log entry into summary format
    * Aggregates page-level data into file-level summary
    * @param {string} fileName - Name of the file
    * @param {Object} fileLog - Log data for the file (page-level results)
-   * @returns {Object} Formatted summary object
+   * @returns {FormattedSummary} Formatted summary object
    */
-  const formatLogSummary = useCallback(
-    (fileName: string, fileLog: Record<string, PageData>): FormattedLogSummary => {
-      let totalCodesCount = 0;
-      let qrCodesCount = 0;
-      let barcodesCount = 0;
-      const codesOnEveryPage: number[] = [];
-      let hasErrors = false;
+  const formatLogSummary = useCallback((fileName: string, fileLog: any): FormattedSummary => {
+    let totalCodesCount = 0;
+    let qrCodesCount = 0;
+    let barcodesCount = 0;
+    const codesOnEveryPage = [];
+    let hasErrors = false;
 
-      // Aggregate data from all pages
-      Object.entries(fileLog).forEach(([, pageData]) => {
-        if (pageData.codes && Array.isArray(pageData.codes)) {
-          const pageCodes = pageData.codes.length;
-          codesOnEveryPage.push(pageCodes);
-          totalCodesCount += pageCodes;
+    // Aggregate data from all pages
+    Object.entries(fileLog).forEach(([pageNumber, pageData]) => {
+      if (pageData.codes && Array.isArray(pageData.codes)) {
+        const pageCodes = pageData.codes.length;
+        codesOnEveryPage.push(pageCodes);
+        totalCodesCount += pageCodes;
 
-          // Count specific code types
-          pageData.codes.forEach((codeObj) => {
-            // QRCode is identified by the QRCode property
-            if (codeObj.QRCode) {
-              qrCodesCount++;
-            }
-            // Code128 is identified by the Code128 property (barcode)
-            if (codeObj.Code128) {
-              barcodesCount++;
-            }
-          });
-        }
+        // Count specific code types
+        pageData.codes.forEach((codeObj) => {
+          // QRCode is identified by the QRCode property
+          if (codeObj.QRCode) {
+            qrCodesCount++;
+          }
+          // Code128 is identified by the Code128 property (barcode)
+          if (codeObj.Code128) {
+            barcodesCount++;
+          }
+        });
+      }
 
-        if (!pageData.success || (pageData.errors && pageData.errors.length > 0)) {
-          hasErrors = true;
-        }
-      });
+      if (!pageData.success || (pageData.errors && pageData.errors.length > 0)) {
+        hasErrors = true;
+      }
+    });
 
-      return {
-        fileName,
-        totalCodesCount,
-        qrCodesCount,
-        barcodesCount,
-        codesOnEveryPage,
-        hasErrors,
-      };
-    },
-    []
-  );
+    return {
+      fileName,
+      totalCodesCount,
+      qrCodesCount,
+      barcodesCount,
+      codesOnEveryPage,
+      hasErrors,
+    };
+  }, []);
 
   /**
    * Read and summarize logs from LogWriter
    * Also verifies logs and identifies pages that need retry
-   * @returns {Promise<Object>} Object containing:
+   * @returns {Promise<SummarizerResult>} Object containing:
    *   - summary: Array of formatted log summaries
    *   - verification: { filesToRetry, bestCounts }
-   * @throws {Error} If logsDirectory or logFileName is not set
+   * @throws {Error} If logsDirectory is not set
    */
-  const summarizeLogs = useCallback(async (): Promise<SummarizeLogs> => {
+  const summarizeLogs = useCallback(async (): Promise<SummarizerResult> => {
     try {
       if (!logsDirectory) {
         throw new Error("Logs directory not selected. Please select a logs directory first.");
       }
 
-      if (!logFileName) {
-        throw new Error("No log file available. Please process some files first.");
-      }
-
-      // Read logs from the selected log file
-      const logsData = await LogWriter.readLogsFile(logsDirectory, logFileName);
+      // Read logs from the selected directory using correct LogWriter method
+      const logsData = await LogWriter.readLogsFile(logsDirectory);
 
       if (!logsData || Object.keys(logsData).length === 0) {
         console.warn("No logs found");
@@ -131,11 +109,11 @@ export const useSummarizer = (logsDirectory: string | null, logFileName: string 
 
       // Transform the logs into summary format
       const summary = Object.entries(logsData).map(([fileName, fileLog]) => {
-        return formatLogSummary(fileName, fileLog as Record<string, PageData>);
+        return formatLogSummary(fileName, fileLog);
       });
 
       // Verify logs and get pages that need retry
-      const verification = await LogWriter.verifyAndGetRetryPages(logsDirectory, logFileName);
+      const verification = await LogWriter.verifyAndGetRetryPages(logsDirectory);
 
       // Display the summary in table format
       console.table(summary);
@@ -150,14 +128,14 @@ export const useSummarizer = (logsDirectory: string | null, logFileName: string 
       console.error("Error summarizing logs:", error);
       throw error;
     }
-  }, [logsDirectory, logFileName, formatLogSummary]);
+  }, [logsDirectory, formatLogSummary]);
 
   /**
    * Export summary to a file or display
-   * @param {Array} summary - Summary data to export
-   * @returns {Promise<void>}
+   * @param {FormattedSummary[]} summary - Summary data to export
+   * @returns {Promise<FormattedSummary[]>}
    */
-  const exportSummary = useCallback(async (summary: FormattedLogSummary[]): Promise<FormattedLogSummary[]> => {
+  const exportSummary = useCallback(async (summary: FormattedSummary[]): Promise<FormattedSummary[]> => {
     try {
       if (!summary || summary.length === 0) {
         console.warn("No summary data to export");

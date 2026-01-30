@@ -1,30 +1,21 @@
-import { readBarcodes } from "zxing-wasm/reader";
+import { readBarcodes, type ReadInputBarcodeFormat } from "zxing-wasm/reader";
 
-interface ReaderOptions {
-  tryHarder?: boolean
-  formats?: string[]
-  maxNumberOfSymbols?: number
+export interface ScannerOptions {
+  tryHarder?: boolean;
+  formats?: ReadInputBarcodeFormat[];
+  maxNumberOfSymbols?: number;
 }
 
-interface CodePosition {
-  x: number
-  y: number
+export interface BarcodeData {
+  data: string;
+  format: string;
+  position: unknown;
 }
 
-interface BarcodeResult {
-  text: string
-  format: string
-  position?: CodePosition
-}
-
-interface ScanResult {
-  success: boolean
-  codes: Array<{
-    data: string
-    format: string
-    position: CodePosition | null
-  }>
-  error: string | null
+export interface ScanResult {
+  success: boolean;
+  codes: BarcodeData[];
+  error: string | null;
 }
 
 /**
@@ -34,9 +25,13 @@ interface ScanResult {
  * with a clear pass/fail indicator.
  */
 export class ScanImage {
-  private readerOptions: Required<ReaderOptions>
+  readerOptions: {
+    tryHarder: boolean;
+    formats: ReadInputBarcodeFormat[];
+    maxNumberOfSymbols: number;
+  };
 
-  constructor(options: ReaderOptions = {}) {
+  constructor(options: ScannerOptions = {}) {
     this.readerOptions = {
       tryHarder: options.tryHarder ?? true,
       formats: options.formats ?? ["QRCode", "Code128"],
@@ -51,7 +46,7 @@ export class ScanImage {
    */
   async scan(blob: Blob): Promise<ScanResult> {
     try {
-      const results: BarcodeResult[] = await readBarcodes(blob, this.readerOptions);
+      const results = await readBarcodes(blob, this.readerOptions);
 
       if (!results || results.length === 0) {
         return {

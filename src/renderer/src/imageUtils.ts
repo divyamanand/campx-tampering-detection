@@ -1,58 +1,67 @@
 /**
- * Image utility functions for manipulation
+ * Rotate image blob by specified degrees
+ * @param blob - Image blob to rotate
+ * @param degrees - Rotation degrees (90, 180, 270)
+ * @returns Promise resolving to rotated image blob
  */
-
-/**
- * Rotate an image blob by specified degrees
- * @param {Blob} blob - The image blob to rotate
- * @param {number} degrees - Rotation angle (90, 180, 270)
- * @returns {Promise<Blob>} - The rotated image blob
- */
-export async function rotateImage(blob: Blob, degrees: number = 180): Promise<Blob> {
+export const rotateImage = async (
+  blob: Blob,
+  degrees: number
+): Promise<Blob> => {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(blob);
+    const reader = new FileReader()
 
-    img.onload = () => {
-      URL.revokeObjectURL(url);
+    reader.onload = (e: ProgressEvent<FileReader>) => {
+      const img = new Image()
 
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
 
-      if (!ctx) {
-        reject(new Error("Failed to get canvas context"));
-        return;
+        if (!ctx) {
+          reject(new Error('Could not get 2D context from canvas'))
+          return
+        }
+
+        // Handle rotation
+        const radians = (degrees % 360 * Math.PI) / 180
+
+        if (degrees === 90 || degrees === 270) {
+          // Swap width and height for 90/270 degree rotation
+          canvas.width = img.height
+          canvas.height = img.width
+        } else {
+          canvas.width = img.width
+          canvas.height = img.height
+        }
+
+        // Translate to center, rotate, then translate back
+        ctx.translate(canvas.width / 2, canvas.height / 2)
+        ctx.rotate(radians)
+        ctx.drawImage(img, -img.width / 2, -img.height / 2)
+
+        canvas.toBlob((rotatedBlob) => {
+          if (!rotatedBlob) {
+            reject(new Error('Failed to create blob from rotated canvas'))
+            return
+          }
+          resolve(rotatedBlob)
+          // Clean up
+          canvas.remove()
+        }, blob.type || 'image/png')
       }
 
-      // Handle 90/270 degree rotations (swap dimensions)
-      const swap = degrees === 90 || degrees === 270;
-      canvas.width = swap ? img.height : img.width;
-      canvas.height = swap ? img.width : img.height;
+      img.onerror = () => {
+        reject(new Error('Failed to load image'))
+      }
 
-      // Move to center, rotate, then draw
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate((degrees * Math.PI) / 180);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      img.src = e.target?.result as string
+    }
 
-      canvas.toBlob(
-        (rotatedBlob) => {
-          canvas.width = canvas.height = 0; // Cleanup
-          if (rotatedBlob) {
-            resolve(rotatedBlob);
-          } else {
-            reject(new Error("Failed to create rotated blob"));
-          }
-        },
-        blob.type || "image/png",
-        1
-      );
-    };
+    reader.onerror = () => {
+      reject(new Error('Failed to read blob'))
+    }
 
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Failed to load image for rotation"));
-    };
-
-    img.src = url;
-  });
+    reader.readAsDataURL(blob)
+  })
 }
