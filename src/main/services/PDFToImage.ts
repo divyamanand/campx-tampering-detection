@@ -1,8 +1,9 @@
 import { createCanvas, ImageData } from "canvas";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
+import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
+import pdfWorker from "pdfjs-dist/build/pdf.worker.min?url";
 
-pdfjsLib.GlobalWorkerOptions.disableWorker = true;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 
 export interface PDFToImageOptions {
