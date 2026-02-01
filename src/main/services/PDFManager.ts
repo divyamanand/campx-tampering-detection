@@ -126,7 +126,7 @@ export class PDFManager {
   const pdf = await this.loadDocument(input);
   const totalPages = pdf.numPages;
 
-  console.log("PDF Details", pdf, totalPages)
+  // console.log("PDF Details", pdf, totalPages)
 
   try {
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
