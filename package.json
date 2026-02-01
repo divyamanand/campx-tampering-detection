@@ -19,8 +19,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.88",
-    "@napi-rs/canvas-win32-x64-msvc": "^0.1.88",
     "canvas": "^3.2.1",
     "pdf-to-img": "^5.0.0",
     "pdfjs-dist": "3.11.174",

@@ -1,8 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { initializeScannerHandlers } from './scanner';
-import { initZXing } from './zxingSetup';
-// import { initializeScannerHandlers } from './scanner';
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -24,7 +22,6 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  await initZXing()
   initializeScannerHandlers();
   createWindow();
 });
