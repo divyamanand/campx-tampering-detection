@@ -13,6 +13,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src/renderer/**/*"],
+  "include": ["src/renderer/**/*", "src/main/services/ScaleSequenceGenerator.ts"],
   "references": [{ "path": "./tsconfig.main.json" }]
 }
