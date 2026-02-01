@@ -1,8 +1,9 @@
-import type { PDFPageProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { ScanImage, type ScanResult } from "./ScanImage";
 import { PDFToImage } from "./PDFToImage";
 import { rotateImage } from "./imageUtils";
 import { ImageData } from "canvas";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
 
 export interface PDFManagerConfig {
   initialScale?: number;
@@ -52,6 +53,7 @@ export class PDFManager {
 
   async processPage(page: PDFPageProxy, pageNumber: number): Promise<PageProcessResult> {
     try {
+
       const imageResult = await this.pdfToImage.convertPageToImage(page, this.config.initialScale);
       
       let bestResult: { result: ScanResult; rotated: boolean };
@@ -86,73 +88,82 @@ export class PDFManager {
     }
   }
 
+  async loadDocument(
+    input: ArrayBuffer | Uint8Array | Buffer
+  ): Promise<PDFDocumentProxy> {
+    let data: Uint8Array;
+  
+    if (Buffer.isBuffer(input)) {
+      data = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    } else if (input instanceof Uint8Array) {
+      data = input;
+    } else {
+      data = new Uint8Array(input);
+    }
+  
+    return pdfjsLib.getDocument({ data }).promise;
+  }
 
-  async processFile(
-    pdfFile: File,
-    onPageComplete?: ((data: {
-      fileName: string;
-      pageNumber: number;
-      totalPages: number;
-      pageResult: PageProcessResult;
-    }) => void) | null
-  ): Promise<{
+
+  async processBuffer(
+  input: ArrayBuffer | Uint8Array | Buffer,
+  fileName = "document.pdf",
+  onPageComplete?: ((data: {
     fileName: string;
+    pageNumber: number;
     totalPages: number;
-    results: Record<number, PageProcessResult>;
-    success: boolean;
-    error?: string;
-  }> {
-    const fileName = pdfFile.name;
-    const fileResults: Record<number, PageProcessResult> = {};
-    const arrayBuffer = await pdfFile.arrayBuffer();
-    const pdf = await this.pdfToImage.loadDocument(arrayBuffer);
-    const totalPages = pdf.numPages
+    pageResult: PageProcessResult;
+  }) => void) | null
+): Promise<{
+  fileName: string;
+  totalPages: number;
+  results: Record<number, PageProcessResult>;
+  success: boolean;
+  error?: string;
+}> {
+  const fileResults: Record<number, PageProcessResult> = {};
 
-    try {
-      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const pageResult = await this.processPage(page, pageNum);
+  const pdf = await this.loadDocument(input);
+  const totalPages = pdf.numPages;
 
-        // Store result in local object
-        fileResults[pageNum] = {
-          result: pageResult.result,
-          scale: pageResult.scale,
-          rotated: pageResult.rotated,
-          success: pageResult.success,
-        };
+  console.log("PDF Details", pdf, totalPages)
 
-        // Progress callback
-        if (onPageComplete) {
-          onPageComplete({
-            fileName,
-            pageNumber: pageNum,
-            totalPages,
-            pageResult,
-          });
-        }
-      }
+  try {
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const pageResult = await this.processPage(page, pageNum);
 
-      return {
-        fileName,
-        totalPages,
-        results: fileResults,
-        success: true,
-      };
-    } catch (err) {
-      return {
-        fileName,
-        totalPages: 0,
-        results: fileResults,
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      };
-    } finally {
-      if (pdf) {
-        await pdf.destroy()
+      fileResults[pageNum] = pageResult;
 
+      if (onPageComplete) {
+        onPageComplete({
+          fileName,
+          pageNumber: pageNum,
+          totalPages,
+          pageResult,
+        });
       }
     }
+
+    return {
+      fileName,
+      totalPages,
+      results: fileResults,
+      success: true,
+    };
+  } catch (err) {
+    return {
+      fileName,
+      totalPages: 0,
+      results: fileResults,
+      success: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  } finally {
+    await pdf.destroy();
   }
+}
+
 }
 
 // Export a factory function for convenience

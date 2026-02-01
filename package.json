@@ -4,9 +4,10 @@
   "description": "CampX Tampering Detection",
   "main": "dist/main/main/index.js",
   "scripts": {
-    "dev": "npm run build:main && concurrently -k -n main,renderer,tsc \"electron .\" \"vite --config vite.config.ts\" \"tsc -p tsconfig.main.json --watch --preserveWatchOutput\"",
-    "build": "npm run build:renderer && npm run build:main",
+    "dev": "npm run build:main && npm run copy:assets && concurrently -k -n main,renderer,tsc \"electron .\" \"vite --config vite.config.ts\" \"tsc -p tsconfig.main.json --watch --preserveWatchOutput\"",
+    "build": "npm run build:renderer && npm run build:main && npm run copy:assets",
     "build:main": "tsc -p tsconfig.main.json",
+    "copy:assets": "node -e \"const fs=require('fs'); const path=require('path'); const src='assets'; const dst='dist/main/assets'; fs.cpSync(src, dst, {recursive: true});\"",
     "build:renderer": "vite build --config vite.config.ts",
     "start": "electron .",
     "dist": "npm run build && electron-builder"
@@ -22,7 +23,7 @@
     "@napi-rs/canvas-win32-x64-msvc": "^0.1.88",
     "canvas": "^3.2.1",
     "pdf-to-img": "^5.0.0",
-    "pdfjs-dist": "^5.4.530",
+    "pdfjs-dist": "3.11.174",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "unpdf": "^1.4.0",
