@@ -3,8 +3,9 @@
  *
  * Simplified version of WorkerPool for routing operations:
  * - Single persistent worker (file operations are I/O-bound, not CPU-bound)
- * - Processes routing jobs from RoutingQueue
- * - Serialized file movements (no race conditions)
+ * - Queues routing jobs locally (not shared with worker)
+ * - Uses message passing for serialized file movements
+ * - No race conditions (serialized via single worker)
  *
  * Unlike PDF scanning (parallel workers), routing uses ONE worker
  * to ensure atomic, serialized file operations.
@@ -12,15 +13,31 @@
 
 import { Worker } from 'worker_threads';
 import path from 'path';
+import type { RoutingJob } from '../services/RoutingQueue';
+
+interface RoutingJobWithResolver extends RoutingJob {
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+}
 
 /**
- * Routing Worker Pool - Manages single routing worker
+ * Routing Worker Pool - Manages single routing worker with local queue
  */
 export class RoutingWorkerPool {
   /**
    * Single routing worker instance
    */
   private worker: Worker | null = null;
+
+  /**
+   * Queue of jobs waiting to be processed (local queue, not shared with worker)
+   */
+  private queue: RoutingJobWithResolver[] = [];
+
+  /**
+   * Current job being processed
+   */
+  private currentJob: RoutingJobWithResolver | null = null;
 
   /**
    * Initialize the routing worker
@@ -35,13 +52,27 @@ export class RoutingWorkerPool {
       const workerPath = path.join(__dirname, 'pdfRouting.worker.js');
       this.worker = new Worker(workerPath);
 
-      this.worker.on('error', (error) => {
+      // Listen for messages from worker
+      this.worker.on('message', (message: any) => {
+        this.handleWorkerMessage(message);
+      });
+
+      this.worker.on('error', (error: Error) => {
         console.error('[RoutingWorkerPool] Worker error:', error);
+        if (this.currentJob) {
+          this.currentJob.reject(error);
+          this.currentJob = null;
+        }
+        this.processNextJob();
       });
 
       this.worker.on('exit', (code) => {
         console.log(`[RoutingWorkerPool] Worker exited with code ${code}`);
         this.worker = null;
+        if (this.currentJob) {
+          this.currentJob.reject(new Error('Worker exited unexpectedly'));
+          this.currentJob = null;
+        }
       });
 
       console.log('[RoutingWorkerPool] Routing worker initialized');
@@ -49,6 +80,92 @@ export class RoutingWorkerPool {
       console.error('[RoutingWorkerPool] Failed to initialize worker:', error);
       throw error;
     }
+  }
+
+  /**
+   * Submit a routing job to the worker
+   * Returns a promise that resolves when the job completes
+   */
+  async submit(job: RoutingJob): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      const jobWithResolver: RoutingJobWithResolver = {
+        ...job,
+        resolve,
+        reject,
+      };
+
+      // Add to queue
+      this.queue.push(jobWithResolver);
+      console.log(`[RoutingWorkerPool] Job queued: ${job.fileName} (${job.finalStatus})`);
+
+      // Try to process if worker is idle
+      this.processNextJob();
+    });
+  }
+
+  /**
+   * Process next job in queue if worker is idle
+   */
+  private processNextJob(): void {
+    // Don't process if worker is busy or not available
+    if (this.currentJob || !this.worker || this.queue.length === 0) {
+      return;
+    }
+
+    // Get next job from queue
+    const job = this.queue.shift();
+    if (!job) {
+      return;
+    }
+
+    this.currentJob = job;
+    console.log(`[RoutingWorkerPool] Assigning job: ${job.fileName}`);
+
+    try {
+      // Send job to worker (transfer ArrayBuffer if applicable)
+      this.worker.postMessage({
+        fileName: job.fileName,
+        sourcePath: job.sourcePath,
+        baseDir: job.baseDir,
+        finalStatus: job.finalStatus,
+      });
+    } catch (error) {
+      console.error('[RoutingWorkerPool] Failed to send job to worker:', error);
+      if (this.currentJob) {
+        this.currentJob.reject(error instanceof Error ? error : new Error(String(error)));
+        this.currentJob = null;
+      }
+      this.processNextJob();
+    }
+  }
+
+  /**
+   * Handle messages from worker
+   */
+  private handleWorkerMessage(message: any): void {
+    if (!this.currentJob) {
+      console.warn('[RoutingWorkerPool] Received message but no current job:', message);
+      return;
+    }
+
+    const { type, error } = message;
+
+    if (type === 'result') {
+      if (error) {
+        console.error(`[RoutingWorkerPool] Job failed: ${this.currentJob.fileName}`, error);
+        this.currentJob.reject(new Error(error));
+      } else {
+        console.log(`[RoutingWorkerPool] Job completed: ${this.currentJob.fileName}`);
+        this.currentJob.resolve({ success: true });
+      }
+    } else if (type === 'error') {
+      console.error(`[RoutingWorkerPool] Worker error for ${this.currentJob.fileName}:`, error);
+      this.currentJob.reject(new Error(error));
+    }
+
+    // Move to next job
+    this.currentJob = null;
+    this.processNextJob();
   }
 
   /**
@@ -64,6 +181,8 @@ export class RoutingWorkerPool {
       this.worker.terminate().then((code) => {
         console.log('[RoutingWorkerPool] Worker terminated');
         this.worker = null;
+        this.currentJob = null;
+        this.queue = [];
         resolve(code);
       });
     });
@@ -77,10 +196,10 @@ export class RoutingWorkerPool {
   }
 
   /**
-   * Get worker instance (for internal use only)
+   * Get queue size (for monitoring)
    */
-  getWorker(): Worker | null {
-    return this.worker;
+  getQueueSize(): number {
+    return this.queue.length + (this.currentJob ? 1 : 0);
   }
 }
 

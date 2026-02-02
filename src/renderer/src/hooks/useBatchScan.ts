@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { scannerService } from '../services/ScannerService';
 import type { BatchState, BatchProgressEvent } from '../../../main/types/BatchSettings';
 import type { BatchSettings } from '../../../main/types/BatchSettings';
 
@@ -37,17 +38,18 @@ export const useBatchScan = (): UseBatchScanReturn => {
 
   // Set up listener for batch progress events from main process
   useEffect(() => {
-    const handleBatchProgress = (progressData: BatchProgressEvent) => {
-      setBatchProgress(progressData);
+    const handleBatchProgress = (progressData: unknown) => {
+      const progress = progressData as BatchProgressEvent;
+      setBatchProgress(progress);
 
       // Update scanning state based on progress type
-      if (progressData.type === 'batch-complete' || progressData.type === 'batch-error') {
+      if (progress.type === 'batch-complete' || progress.type === 'batch-error') {
         setScanning(false);
         setPaused(false);
       }
     };
 
-    window.electronAPI.on('batch-progress', handleBatchProgress);
+    scannerService.onBatchProgress(handleBatchProgress);
 
     return () => {
       // Note: The current IPC setup doesn't provide an 'off' method
@@ -64,7 +66,7 @@ export const useBatchScan = (): UseBatchScanReturn => {
       setBatchProgress(null);
 
       try {
-        const response = await window.electronAPI.invoke('batch-start', settings);
+        const response = await scannerService.startBatch(settings);
 
         if (!response.success) {
           setError(response.error || 'Failed to start batch');
@@ -81,7 +83,7 @@ export const useBatchScan = (): UseBatchScanReturn => {
 
   const pause = useCallback(async (): Promise<void> => {
     try {
-      const response = await window.electronAPI.invoke('batch-pause');
+      const response = await scannerService.pauseBatch();
 
       if (response.success) {
         setPaused(true);
@@ -96,7 +98,7 @@ export const useBatchScan = (): UseBatchScanReturn => {
 
   const resume = useCallback(async (): Promise<void> => {
     try {
-      const response = await window.electronAPI.invoke('batch-resume');
+      const response = await scannerService.resumeBatch();
 
       if (response.success) {
         setPaused(false);
@@ -111,7 +113,7 @@ export const useBatchScan = (): UseBatchScanReturn => {
 
   const stop = useCallback(async (): Promise<void> => {
     try {
-      const response = await window.electronAPI.invoke('batch-stop');
+      const response = await scannerService.stopBatch();
 
       if (response.success) {
         setScanning(false);

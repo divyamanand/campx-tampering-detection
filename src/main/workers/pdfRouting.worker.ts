@@ -1,19 +1,35 @@
 /**
  * PDF Routing Worker - Asynchronous File Movement
  *
- * Processes routing jobs:
- * - Picks up routing jobs from RoutingQueue
+ * Processes routing jobs via message passing:
+ * - Listens for routing jobs from RoutingWorkerPool
  * - Creates folders lazily (serialized, no race conditions)
  * - Moves files atomically
- * - Never blocks scanning
+ * - Sends results back to main process
  *
- * Pure Node.js worker (no Electron, no DOM, no IPC)
+ * Pure Node.js worker (no Electron, no DOM)
+ * Uses parentPort for message passing (not shared memory)
  */
 
 import { parentPort } from 'worker_threads';
 import { FileRoutingService } from '../services/FileRoutingService';
-import { getRoutingQueue } from '../services/RoutingQueue';
-import type { RoutingJob } from '../services/RoutingQueue';
+import type { FileStatus } from '../services/FileRoutingService';
+
+interface RoutingJobRequest {
+  fileName: string;
+  sourcePath: string;
+  baseDir: string;
+  finalStatus: FileStatus;
+}
+
+interface RoutingResultMessage {
+  type: 'result';
+}
+
+interface RoutingErrorMessage {
+  type: 'error';
+  error: string;
+}
 
 /**
  * Initialize routing service once (reused across all jobs)
@@ -55,9 +71,27 @@ async function ensureFolderExists(folderPath: string): Promise<void> {
 }
 
 /**
+ * Send result back to main process
+ */
+function sendResult(success: boolean, error?: string): void {
+  if (!parentPort) return;
+
+  const message: RoutingResultMessage | RoutingErrorMessage = error
+    ? {
+        type: 'error',
+        error,
+      }
+    : {
+        type: 'result',
+      };
+
+  parentPort.postMessage(message);
+}
+
+/**
  * Process a single routing job
  */
-async function processRoutingJob(job: RoutingJob): Promise<void> {
+async function processRoutingJob(job: RoutingJobRequest): Promise<void> {
   if (!routingService) {
     throw new Error('RoutingService not initialized');
   }
@@ -78,61 +112,56 @@ async function processRoutingJob(job: RoutingJob): Promise<void> {
     await routingService.moveFile(sourcePath, destinationPath);
 
     console.log(`[RoutingWorker] ✓ Moved: ${fileName} → ${finalStatus}/`);
+
+    // Send success result
+    sendResult(true);
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[RoutingWorker] Failed to route ${fileName}:`, error);
-    throw error;
+    sendResult(false, errorMessage);
   }
 }
 
 /**
- * Main routing loop - picks up jobs and processes them
- * Runs indefinitely until worker is terminated
+ * Listen for routing jobs from main process via message passing
+ *
+ * IMPORTANT: Unlike the broken previous design, this worker:
+ * 1. Receives jobs via parentPort.on('message')
+ * 2. Never tries to access main process memory (RoutingQueue)
+ * 3. Processes one job at a time (serialized)
+ * 4. Sends results back via parentPort.postMessage()
  */
-async function routingLoop(): Promise<void> {
-  const queue = getRoutingQueue();
-
-  console.log('[RoutingWorker] Routing loop started');
-
-  while (true) {
-    try {
-      // Wait for next job
-      const job = await queue.dequeue();
-
-      if (!job) {
-        // Queue was cleared or worker shutting down
-        console.log('[RoutingWorker] No more jobs');
-        break;
+if (parentPort) {
+  // Initialize worker when first message arrives
+  parentPort.on('message', async (job: RoutingJobRequest) => {
+    if (job.fileName && job.sourcePath && job.baseDir && job.finalStatus) {
+      // Initialize worker on first job
+      if (!routingService) {
+        initializeWorker();
       }
 
       // Process the job
       await processRoutingJob(job);
-    } catch (error) {
-      console.error('[RoutingWorker] Error processing job:', error);
-      // Continue processing next job even if one fails
+    } else {
+      console.error('[RoutingWorker] Invalid job request:', job);
+      sendResult(false, 'Invalid job format');
     }
-  }
-}
-
-/**
- * Start the routing worker
- */
-function startRoutingWorker(): void {
-  initializeWorker();
-
-  // Start the routing loop (never exits)
-  routingLoop().catch((error) => {
-    console.error('[RoutingWorker] Routing loop crashed:', error);
-    process.exit(1);
   });
 
-  console.log('[RoutingWorker] PDF routing worker ready');
+  console.log('[RoutingWorker] PDF routing worker ready (listening for jobs via parentPort)');
+} else {
+  console.error('[RoutingWorker] Not running in worker thread context');
+  process.exit(1);
 }
-
-// Start the worker
-startRoutingWorker();
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
   console.error('[RoutingWorker] Uncaught exception:', error);
+  if (parentPort) {
+    parentPort.postMessage({
+      type: 'error',
+      error: error.message,
+    });
+  }
   process.exit(1);
 });

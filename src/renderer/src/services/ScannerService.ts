@@ -1,100 +1,106 @@
 /**
- * ScannerService - Wrapper for scanner IPC handlers
+ * ScannerService - Batch Processing API
  *
- * Provides a clean API to invoke scanner functionality from the main process
+ * Provides a clean API to invoke batch processing functionality from the main process.
+ * Uses the complete BatchOrchestrator pipeline with:
+ * - PDF scanning workers
+ * - Verification (tampering detection)
+ * - File routing (tampered/retry/scan_passed)
+ * - Crash-safe logging
  */
 
-export interface PDFManagerConfig {
-  initialScale?: number;
-  enableRotation?: boolean;
-  rotationDegrees?: number;
-}
+import type { BatchSettings, BatchState, BatchResult } from '../../../main/types/BatchSettings';
 
-export interface ScanResult {
-  fileName: string;
-  totalPages: number;
-  results: Record<string, unknown>;
+/**
+ * Batch processing response
+ */
+export interface BatchResponse<T = unknown> {
   success: boolean;
+  message?: string;
   error?: string;
-}
-
-export interface BatchScanResult {
-  allResults: Record<string, ScanResult>;
-  failedFiles: string[];
-  successCount: number;
-  failureCount: number;
-}
-
-export interface DirectoryScanResult {
-  scannedCount: number;
-  failedCount: number;
-  failedFiles: string[];
-  results: Record<string, ScanResult>;
+  result?: T;
 }
 
 class ScannerService {
   /**
-   * Scan a single PDF file
+   * Start batch directory scanning with verification and routing
    *
-   * Results will be automatically logged to the directory specified in global settings
+   * Begins persistent polling of the specified directory.
+   * Files are processed in batches, verified for tampering, and routed to appropriate folders.
    *
-   * @param filePath - Full path to the PDF file
-   * @param config - PDFManager configuration options
-   * @returns Scan result with detailed page information
+   * @param settings - Batch configuration (directory, batch size, polling interval, PDF config)
+   * @returns Response with success status
    */
-  async scanSingleFile(
-    filePath: string,
-    config: PDFManagerConfig = {}
-  ): Promise<ScanResult> {
-    return window.electronAPI.invoke('scan-pdf-file', filePath, config);
+  async startBatch(settings: BatchSettings): Promise<BatchResponse> {
+    return (await window.electronAPI.invoke('batch-start', settings)) as BatchResponse;
   }
 
   /**
-   * Scan multiple PDF files in batch
+   * Pause batch processing
    *
-   * Sends 'scan-progress' events to track real-time progress
-   * Results will be automatically logged to the directory specified in global settings
+   * Pauses processing but keeps directory polling active.
+   * Can be resumed without restarting the scan.
    *
-   * @param filePaths - Array of full paths to PDF files
-   * @param config - PDFManager configuration options
-   * @returns Batch scan results with summary statistics
+   * @returns Response with success status
    */
-  async scanBatch(
-    filePaths: string[],
-    config: PDFManagerConfig = {}
-  ): Promise<BatchScanResult> {
-    return window.electronAPI.invoke('scan-pdf-batch', filePaths, config);
+  async pauseBatch(): Promise<BatchResponse> {
+    return (await window.electronAPI.invoke('batch-pause')) as BatchResponse;
   }
 
   /**
-   * Scan all PDF files in a directory
+   * Resume batch processing
    *
-   * Sends 'scan-progress' events to track real-time progress
-   * Results will be automatically logged to the directory specified in global settings
+   * Resumes paused batch processing from where it was paused.
    *
-   * @param dirPath - Full path to directory containing PDF files
-   * @param config - PDFManager configuration options
-   * @returns Directory scan results with summary statistics
+   * @returns Response with success status
    */
-  async scanDirectory(
-    dirPath: string,
-    config: PDFManagerConfig = {}
-  ): Promise<DirectoryScanResult> {
-    return window.electronAPI.invoke('scan-directory', dirPath, config);
+  async resumeBatch(): Promise<BatchResponse> {
+    return (await window.electronAPI.invoke('batch-resume')) as BatchResponse;
   }
 
   /**
-   * Listen for scan progress events
+   * Stop batch processing
+   *
+   * Stops polling and processing, returns final results.
+   *
+   * @returns Response with batch result
+   */
+  async stopBatch(): Promise<BatchResponse<BatchResult>> {
+    return (await window.electronAPI.invoke('batch-stop')) as BatchResponse<BatchResult>;
+  }
+
+  /**
+   * Get current batch state
+   *
+   * Returns the current state of batch processing including:
+   * - Active/paused status
+   * - Total/processed/queued file counts
+   * - Batch index
+   * - Elapsed time
+   *
+   * @returns Response with batch state
+   */
+  async getBatchState(): Promise<BatchResponse<BatchState>> {
+    return (await window.electronAPI.invoke('batch-get-state')) as BatchResponse<BatchState>;
+  }
+
+  /**
+   * Listen for batch progress events
+   *
+   * Emitted during batch processing with real-time statistics:
+   * - Files processed in current batch
+   * - Total files processed
+   * - Queue size
+   * - Throughput (files/sec)
+   * - Estimated time remaining
    *
    * @param callback - Function called with progress data
-   * @returns Cleanup function to remove listener
+   * @returns Cleanup function (no-op, IPC doesn't support unsubscribe)
    */
-  onScanProgress(
-    callback: (data: { filePath: string; fileName: string; pageNumber: number; totalPages: number }) => void
-  ): () => void {
-    window.electronAPI.on('scan-progress', callback);
-    // Note: We can't unsubscribe because the preload script doesn't expose an 'off' method
-    // TODO: Add 'off' method to preload script for proper cleanup
+  onBatchProgress(callback: (data: unknown) => void): () => void {
+    window.electronAPI.on('batch-progress', callback);
+    // Note: The current IPC setup doesn't provide an 'off' method
+    // This is a limitation that could be improved in future
     return () => {
       // Placeholder for cleanup
     };

@@ -26,7 +26,7 @@ import type { WorkerJob } from '../workers/Job';
 import { randomUUID } from 'crypto';
 import { getBatchLogger } from './BatchLogger';
 import { createLogEntry } from '../types/LogEntry';
-import { getRoutingQueue } from './RoutingQueue';
+import { getRoutingWorkerPool } from '../workers/RoutingWorkerPool';
 import type { FileStatus } from './FileRoutingService';
 
 /**
@@ -391,7 +391,7 @@ export class BatchOrchestrator {
    */
   private async processBatch(files: string[]): Promise<void> {
     const pool = getWorkerPool();
-    const routingQueue = getRoutingQueue();
+    const routingPool = getRoutingWorkerPool();
 
     console.log(
       `[Orchestrator] Processing batch ${this.state.currentBatchIndex} (${files.length} files)`
@@ -576,19 +576,21 @@ export class BatchOrchestrator {
         });
       }
 
-      // Enqueue routing job (non-blocking)
+      // Submit routing job to worker pool
       try {
-        await routingQueue.enqueue({
+        await routingPool.submit({
+          id: randomUUID(),
           fileName,
           sourcePath: filePath,
           baseDir: this.settings.directory,
           finalStatus: fileStatus,
+          createdAt: Date.now(),
         });
-      } catch (queueError) {
-        console.error(`[Orchestrator] Failed to enqueue routing for ${fileName}:`, queueError);
+      } catch (routingError) {
+        console.error(`[Orchestrator] Failed to route file ${fileName}:`, routingError);
         // Don't fail batch - log it and continue
         logEntry.metadata = logEntry.metadata || {};
-        logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'routing_enqueue_failed'];
+        logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'routing_failed'];
       }
 
       // Add entry to logger
