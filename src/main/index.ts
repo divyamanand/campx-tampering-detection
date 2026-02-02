@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import { initializeScannerHandlers } from './scanner';
 import { prepareZXingModule } from 'zxing-wasm/reader';
@@ -7,6 +7,50 @@ import { getSettingsService, initializeSettings, type AppSettings } from './util
 
 // Main window reference for sending events from worker threads
 let mainWindow: BrowserWindow | undefined;
+let tray: Tray | undefined;
+let isQuitting = false;
+
+function createTray(): void {
+  // Create a simple colored icon for tray
+  const trayIcon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAC0lEQVR4nGNgYAAAABAA+6+6r5EAAAAASUVORK5CYII='
+  );
+
+  tray = new Tray(trayIcon);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      },
+    },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // Show window when clicking tray icon
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -17,6 +61,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+    show: false, // Don't show until ready
   });
 
   if (process.env.NODE_ENV === 'development') {
@@ -25,6 +70,19 @@ function createWindow(): void {
   } else {
     win.loadFile(path.join(__dirname, '../../renderer/index.html'));
   }
+
+  // Show window when ready
+  win.once('ready-to-show', () => {
+    win.show();
+  });
+
+  // Handle close button: minimize to tray instead of closing
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
 
   mainWindow = win;
   return;
@@ -96,18 +154,29 @@ app.whenReady().then(async () => {
   // Create window first so we can pass it to scanner handlers
   createWindow();
 
+  // Create system tray
+  createTray();
+
   // Initialize scanner handlers with mainWindow reference
   initializeScannerHandlers(mainWindow);
 });
 
+// Only quit when explicitly requested (not when closing window)
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // Don't quit on window close - let minimize-to-tray handle it
+  // User must use tray menu "Quit" or Alt+F4 with isQuitting flag
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+  } else if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+    createTray();
   }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });

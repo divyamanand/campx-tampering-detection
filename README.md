@@ -24,6 +24,7 @@ This Electron-based desktop application enables users to:
 3. **Scan Directories** - Batch process multiple PDFs in a directory
 4. **Monitor Directories** - Persistent polling with automatic crash recovery
 5. **Log Results** - Crash-safe logging with automatic result persistence
+6. **System Tray** - Minimize to system tray and keep running in background
 
 ### Application Flow
 
@@ -329,6 +330,32 @@ Results are logged in `{directory}/logs/batches/batch_{timestamp}.json`:
   }
 }
 ```
+
+### 4. System Tray
+
+The application supports minimizing to the system tray while keeping background processes running.
+
+**Features:**
+- **Minimize to Tray** - Clicking the close button (X) hides the window to system tray instead of exiting
+- **Tray Icon** - Application icon appears in system tray for quick access
+- **Single Click Toggle** - Click tray icon to show/hide window
+- **Context Menu** - Right-click tray icon for options:
+  - **Show** - Display the application window
+  - **Quit** - Close the application completely
+
+**Usage:**
+```
+1. Click close button (X) on window → App minimizes to tray
+2. Click tray icon to show window again
+3. Right-click tray icon for context menu
+4. Select "Quit" to completely close the application
+```
+
+**Benefits:**
+- Keep the application running in background for continuous directory monitoring
+- Quick access without cluttering taskbar
+- Persistent batch processing and logging even when window is hidden
+- Automatic logging and directory polling continues while minimized
 
 ---
 
