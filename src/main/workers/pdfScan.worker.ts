@@ -11,7 +11,9 @@
 
 import { parentPort } from 'worker_threads';
 import { PDFManager } from '../services/PDFManager';
+import { VerificationService } from '../services/VerificationService';
 import type { WorkerScanRequest, WorkerProgressEvent, WorkerResultEvent, WorkerErrorEvent } from './types';
+import type { VerificationResult } from '../services/VerificationService';
 
 /**
  * Initialize ZXing and services once (reused across multiple jobs)
@@ -21,9 +23,10 @@ import type { WorkerScanRequest, WorkerProgressEvent, WorkerResultEvent, WorkerE
  * - Worker stays alive indefinitely (never exits)
  */
 let pdfManager: PDFManager | null = null;
+let verificationService: VerificationService | null = null;
 
 /**
- * Initialize the worker's PDFManager instance
+ * Initialize the worker's PDFManager and VerificationService
  */
 function initializeWorker(): void {
   if (!pdfManager) {
@@ -31,6 +34,11 @@ function initializeWorker(): void {
     // PDFManager will use the already-initialized ZXing module
     pdfManager = new PDFManager();
     console.log('[Worker] Initialized PDFManager');
+  }
+
+  if (!verificationService) {
+    verificationService = new VerificationService();
+    console.log('[Worker] Initialized VerificationService');
   }
 }
 
@@ -60,6 +68,7 @@ function sendResult(
   success: boolean,
   results: Record<number, unknown>,
   totalPages: number,
+  verificationResult?: { status: 'scan_passed' | 'retry' | 'tampered'; reason?: string },
   error?: string
 ): void {
   if (!parentPort) return;
@@ -71,6 +80,7 @@ function sendResult(
     success,
     results,
     totalPages,
+    verificationResult,
     error,
   };
 
@@ -103,8 +113,8 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
     // Ensure worker is initialized
     initializeWorker();
 
-    if (!pdfManager) {
-      throw new Error('PDFManager failed to initialize');
+    if (!pdfManager || !verificationService) {
+      throw new Error('Worker services failed to initialize');
     }
 
     // Convert ArrayBuffer to Uint8Array
@@ -123,7 +133,7 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
     };
 
     // Process the PDF
-    const result = await pdfManager.processBuffer(
+    const scanResult = await pdfManager.processBuffer(
       uint8Array,
       fileName,
       onPageComplete
@@ -131,14 +141,41 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
 
     console.log(`[Worker] Scan complete: ${fileName}`);
 
-    // Send final result
+    // Run verification on the scanned results
+    let verificationResult: { status: 'scan_passed' | 'retry' | 'tampered'; reason?: string } | undefined;
+
+    if (scanResult.success) {
+      try {
+        const verificationContext = {
+          fileName,
+          filePath: '', // Will be set by main process
+          totalPages: scanResult.totalPages,
+          pageResults: scanResult.results as Record<number, unknown>,
+          config,
+        };
+
+        const verification = verificationService.verify(verificationContext as any);
+        verificationResult = {
+          status: verification.status,
+          reason: 'reason' in verification ? verification.reason : undefined,
+        };
+
+        console.log(`[Worker] Verification complete: ${fileName} → ${verification.status}`);
+      } catch (verifyError) {
+        console.error(`[Worker] Verification error for ${fileName}:`, verifyError);
+        // Continue anyway - don't fail the whole job due to verification error
+      }
+    }
+
+    // Send final result with verification
     sendResult(
       id,
-      result.fileName,
-      result.success,
-      result.results,
-      result.totalPages,
-      result.error
+      scanResult.fileName,
+      scanResult.success,
+      scanResult.results,
+      scanResult.totalPages,
+      verificationResult,
+      scanResult.error
     );
   } catch (error) {
     console.error(`[Worker] Error scanning ${fileName}:`, error);

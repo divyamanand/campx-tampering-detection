@@ -31,6 +31,15 @@ export interface WorkerResultEvent {
   results: Record<number, unknown>;
   totalPages: number;
   error?: string;
+  /**
+   * Verification result (if verification was performed)
+   * - status: 'scan_passed' | 'retry' | 'tampered'
+   * - reason: (optional) detailed reason for non-passed status
+   */
+  verificationResult?: {
+    status: 'scan_passed' | 'retry' | 'tampered';
+    reason?: string;
+  };
 }
 
 export type WorkerMessage = WorkerProgressEvent | WorkerResultEvent;
