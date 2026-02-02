@@ -14,7 +14,7 @@
 import { rename, mkdir } from 'fs/promises';
 import path from 'path';
 
-export type FileStatus = 'tampered' | 'retry' | 'scan_passed' | 'upload_passed' | 'upload_failed';
+export type FileStatus = 'tampered' | 'retry' | 'scan_passed';
 
 /**
  * File Routing Service - Pure FS operations
@@ -28,8 +28,6 @@ export class FileRoutingService {
       tampered: 'tampered',
       retry: 'retry',
       scan_passed: 'scan_passed',
-      upload_passed: 'upload_passed',
-      upload_failed: 'upload_failed',
     };
     return folderNames[status];
   }
@@ -82,8 +80,6 @@ export class FileRoutingService {
       tampered: 'Tampered',
       retry: 'Retry',
       scan_passed: 'Scan Passed',
-      upload_passed: 'Upload Passed',
-      upload_failed: 'Upload Failed',
     };
     return displayNames[status];
   }

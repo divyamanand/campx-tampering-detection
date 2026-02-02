@@ -57,6 +57,26 @@ export const useBatchScan = (): UseBatchScanReturn => {
     };
   }, []);
 
+  // Poll batch state to complement progress events
+  useEffect(() => {
+    if (!scanning) {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await scannerService.getBatchState();
+        if (response.success && response.result) {
+          setBatchState(response.result);
+        }
+      } catch (err) {
+        console.error('Failed to fetch batch state:', err);
+      }
+    }, 1000); // Poll every 1 second during scanning
+
+    return () => clearInterval(pollInterval);
+  }, [scanning]);
+
   const startBatch = useCallback(
     async (settings: BatchSettings): Promise<void> => {
       setScanning(true);
@@ -71,6 +91,16 @@ export const useBatchScan = (): UseBatchScanReturn => {
         if (!response.success) {
           setError(response.error || 'Failed to start batch');
           setScanning(false);
+        } else {
+          // Fetch initial batch state after successful start
+          try {
+            const stateResponse = await scannerService.getBatchState();
+            if (stateResponse.success && stateResponse.result) {
+              setBatchState(stateResponse.result);
+            }
+          } catch (err) {
+            console.error('Failed to fetch initial batch state:', err);
+          }
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
