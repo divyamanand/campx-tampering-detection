@@ -12,6 +12,7 @@
  */
 
 import { parentPort } from 'worker_threads';
+import path from 'path';
 import { FileRoutingService } from '../../services/file-operations/file-routing.service';
 import type { RoutingJobRequest, RoutingMessage } from './routing.types';
 
@@ -81,14 +82,15 @@ async function processRoutingJob(job: RoutingJobRequest): Promise<void> {
   }
 
   const { fileName, sourcePath, baseDir, finalStatus } = job;
+  console.log("Details from job", fileName, finalStatus)
 
   try {
     console.log(`[RoutingWorker] Processing: ${fileName} (${finalStatus})`);
 
     // Step 1: Get destination path
     const destinationPath = routingService.getDestinationPath(baseDir, fileName, finalStatus);
-    const destinationFolder = destinationPath.substring(0, destinationPath.lastIndexOf('/'));
-
+    const destinationFolder = path.dirname(destinationPath);
+    console.log("Destination", destinationPath, destinationFolder)
     // Step 2: Ensure destination folder exists
     await ensureFolderExists(destinationFolder);
 
@@ -125,6 +127,7 @@ if (parentPort) {
       }
 
       // Process the job
+      console.log("The required job processing",job)
       await processRoutingJob(job);
     } else {
       console.error('[RoutingWorker] Invalid job request:', job);
