@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron';
-import { getOrchestrator } from './services/BatchOrchestrator';
+import { getOrchestrator } from './services/orchestration/batch-orchestrator.service';
 import type { BatchSettings } from './types/BatchSettings';
 
 /**

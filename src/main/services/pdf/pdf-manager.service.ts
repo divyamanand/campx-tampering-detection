@@ -1,7 +1,7 @@
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import { ScanImage, type ScanResult } from "./ScanImage";
-import { PDFToImage } from "./PDFToImage";
-import { rotateImage } from "./imageUtils";
+import { ScanImage, type ScanResult } from "./scan-image.service";
+import { PDFToImage } from "./pdf-to-image.service";
+import { rotateImage } from "./image.utils";
 import { ImageData } from "canvas";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
 
@@ -41,7 +41,7 @@ export class PDFManager {
     return { result, rotated: false };
   }
   async tryScanWithRotation(imageData: ImageData, rotationDegrees? : number): Promise<{ result: ScanResult; rotated: boolean }> {
- 
+
       const rotatedImage = rotateImage(imageData, rotationDegrees);
       const result = await this.scanner.scan(rotatedImage);
       return { result, rotated: true };
@@ -55,11 +55,11 @@ export class PDFManager {
     try {
 
       const imageResult = await this.pdfToImage.convertPageToImage(page, this.config.initialScale);
-      
+
       let bestResult: { result: ScanResult; rotated: boolean };
       const { result, rotated } = await this.tryScan(imageResult.imageData!);
       bestResult = {result, rotated}
-      
+
       if (this.config.enableRotation) {
         const {result, rotated} = await this.tryScanWithRotation(imageResult.imageData!, this.config.rotationDegrees)
         if (this.countCodes(result) > this.countCodes(bestResult.result)) {
@@ -91,7 +91,7 @@ export class PDFManager {
     input: ArrayBuffer | Uint8Array | Buffer
   ): Promise<PDFDocumentProxy> {
     let data: Uint8Array;
-  
+
     if (Buffer.isBuffer(input)) {
       data = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     } else if (input instanceof Uint8Array) {
@@ -99,7 +99,7 @@ export class PDFManager {
     } else {
       data = new Uint8Array(input);
     }
-  
+
     return pdfjsLib.getDocument({ data }).promise;
   }
 

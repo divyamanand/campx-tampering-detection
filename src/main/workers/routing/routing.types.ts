@@ -7,7 +7,7 @@
  * - Message types: for communication between main process and routing worker
  */
 
-import type { FileStatus } from '../../services/FileRoutingService';
+import type { FileStatus } from '../../services/file-operations/file-routing.service';
 
 /**
  * Routing job for file movement

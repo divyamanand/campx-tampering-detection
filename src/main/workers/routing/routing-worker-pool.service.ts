@@ -13,8 +13,8 @@
 
 import { Worker } from 'worker_threads';
 import path from 'path';
-import type { FileStatus } from '../../services/FileRoutingService';
-import type { RoutingJob, RoutingJobWithResolver, RoutingMessage } from './types';
+import type { FileStatus } from '../../services/file-operations/file-routing.service';
+import type { RoutingJob, RoutingJobWithResolver, RoutingMessage } from './routing.types';
 
 /**
  * Routing Worker Pool - Manages single routing worker with local queue

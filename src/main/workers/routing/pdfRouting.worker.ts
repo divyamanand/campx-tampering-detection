@@ -12,9 +12,9 @@
  */
 
 import { parentPort } from 'worker_threads';
-import { FileRoutingService } from '../../services/FileRoutingService';
-import type { FileStatus } from '../../services/FileRoutingService';
-import type { RoutingJobRequest, RoutingMessage } from './types';
+import { FileRoutingService } from '../../services/file-operations/file-routing.service';
+import type { FileStatus } from '../../services/file-operations/file-routing.service';
+import type { RoutingJobRequest, RoutingMessage } from './routing.types';
 
 /**
  * Initialize routing service once (reused across all jobs)

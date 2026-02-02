@@ -4,7 +4,7 @@
  * Configuration for persistent directory polling and batch scanning
  */
 
-import type { PDFManagerConfig } from '../services/PDFManager';
+import type { PDFManagerConfig } from '../services/pdf/pdf-manager.service';
 
 /**
  * Settings for batch directory scanning

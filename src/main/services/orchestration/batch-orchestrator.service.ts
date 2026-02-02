@@ -19,15 +19,15 @@
 
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
-import type { BatchSettings, BatchState, BatchProgressEvent, BatchResult } from '../types/BatchSettings';
-import { DEFAULT_BATCH_SETTINGS } from '../types/BatchSettings';
-import { getWorkerPool } from '../workers/pdfScan/WorkerPool';
-import type { WorkerJob } from '../workers/pdfScan/types';
+import type { BatchSettings, BatchState, BatchProgressEvent, BatchResult } from '../../types/BatchSettings';
+import { DEFAULT_BATCH_SETTINGS } from '../../types/BatchSettings';
+import { getWorkerPool } from '../../workers/pdfScan/worker-pool.service';
+import type { WorkerJob } from '../../workers/pdfScan/worker.types';
 import { randomUUID } from 'crypto';
-import { getBatchLogger } from './BatchLogger';
-import { createLogEntry } from '../types/LogEntry';
-import { getRoutingWorkerPool } from '../workers/routing/RoutingWorkerPool';
-import type { FileStatus } from './FileRoutingService';
+import { getBatchLogger } from '../logging/batch-logger.service';
+import { createLogEntry } from '../../types/LogEntry';
+import { getRoutingWorkerPool } from '../../workers/routing/routing-worker-pool.service';
+import type { FileStatus } from '../file-operations/file-routing.service';
 
 /**
  * BatchOrchestrator - Manages batch directory scanning

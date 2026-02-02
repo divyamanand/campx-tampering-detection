@@ -13,7 +13,7 @@
 import { Worker } from 'worker_threads';
 import path from 'path';
 import { WORKER_POOL_SIZE, WORKER_CONFIG, logPoolDebug, logPoolError } from '../../config/worker.config';
-import type { WorkerJob, WorkerState, PoolStats, WorkerMessage } from './types';
+import type { WorkerJob, WorkerState, PoolStats, WorkerMessage } from './worker.types';
 
 /**
  * WorkerPool - Manages a pool of worker threads

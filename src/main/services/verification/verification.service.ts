@@ -17,7 +17,7 @@
  *    - verifyOCRSerialNumber (placeholder for OCR service)
  */
 
-import type { PageProcessResult, PDFManagerConfig } from './PDFManager';
+import type { PageProcessResult, PDFManagerConfig } from '../pdf/pdf-manager.service';
 
 export type VerificationResult =
   | { status: 'scan_passed' }

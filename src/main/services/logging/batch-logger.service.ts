@@ -19,8 +19,8 @@ import type {
   BatchLogFile,
   LogBuffer,
   ProcessingStatus,
-} from '../types/LogEntry';
-import { createBatchLogHeader, calculateLogStats, createLogEntry } from '../types/LogEntry';
+} from '../../types/LogEntry';
+import { createBatchLogHeader, calculateLogStats, createLogEntry } from '../../types/LogEntry';
 
 /**
  * BatchLogger - Manages logging for batch processing
