@@ -458,7 +458,7 @@ export class BatchOrchestrator {
       const fileEndTime = Date.now();
 
       let logEntry;
-      let fileStatus: FileStatus = 'upload_failed';
+      let fileStatus: FileStatus = 'retry';
 
       if (result.status === 'fulfilled' && result.value.success) {
         // Worker succeeded - safe to access result.value.result
@@ -520,7 +520,7 @@ export class BatchOrchestrator {
               tags: ['retry'],
             },
           });
-        } else {
+        } else if (verificationResult?.status === 'scan_passed') {
           // Scan passed verification
           fileStatus = 'scan_passed';
           logEntry = createLogEntry({
@@ -541,6 +541,34 @@ export class BatchOrchestrator {
             },
             metadata: {
               tags: ['scan_passed'],
+            },
+          });
+        } else {
+          // Verification result missing or unknown status - default to retry
+          fileStatus = 'retry';
+          logEntry = createLogEntry({
+            fileName,
+            absolutePath: filePath,
+            batchId: this.currentBatchId,
+            batchIndex: this.state.currentBatchIndex,
+            startTime: fileStartTime,
+            endTime: fileEndTime,
+            durationMs: fileEndTime - fileStartTime,
+            status: 'PARTIAL',
+            results: jobResult.results || {},
+            totalPages: jobResult.totalPages || 0,
+            error: {
+              message: `Verification result missing or unknown status`,
+              code: 'VERIFICATION_UNDEFINED',
+              timestamp: fileEndTime,
+            },
+            config: {
+              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
+              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
+              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
+            },
+            metadata: {
+              tags: ['retry', 'verification_missing'],
             },
           });
         }

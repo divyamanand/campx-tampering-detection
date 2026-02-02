@@ -245,6 +245,7 @@ export class WorkerPool {
         results: resultMsg.results,
         success: resultMsg.success,
         error: resultMsg.error,
+        verificationResult: resultMsg.verificationResult,
       });
 
       // Clean up
