@@ -13,47 +13,8 @@
 
 import { Worker } from 'worker_threads';
 import path from 'path';
-import type { FileStatus } from '../services/FileRoutingService';
-
-/**
- * Routing job for file movement
- */
-export interface RoutingJob {
-  /**
-   * Unique job identifier
-   */
-  id: string;
-
-  /**
-   * Original filename
-   */
-  fileName: string;
-
-  /**
-   * Full path to source file
-   */
-  sourcePath: string;
-
-  /**
-   * Base directory (from user settings)
-   */
-  baseDir: string;
-
-  /**
-   * Final verification status
-   */
-  finalStatus: FileStatus;
-
-  /**
-   * Timestamp when job was created
-   */
-  createdAt: number;
-}
-
-interface RoutingJobWithResolver extends RoutingJob {
-  resolve: (value: any) => void;
-  reject: (error: Error) => void;
-}
+import type { FileStatus } from '../../services/FileRoutingService';
+import type { RoutingJob, RoutingJobWithResolver, RoutingMessage } from './types';
 
 /**
  * Routing Worker Pool - Manages single routing worker with local queue
@@ -84,11 +45,11 @@ export class RoutingWorkerPool {
     }
 
     try {
-      const workerPath = path.join(__dirname, 'pdfRouting.worker.js');
+      const workerPath = path.join(__dirname, './pdfRouting.worker.js');
       this.worker = new Worker(workerPath);
 
       // Listen for messages from worker
-      this.worker.on('message', (message: any) => {
+      this.worker.on('message', (message: RoutingMessage) => {
         this.handleWorkerMessage(message);
       });
 
@@ -177,13 +138,13 @@ export class RoutingWorkerPool {
   /**
    * Handle messages from worker
    */
-  private handleWorkerMessage(message: any): void {
+  private handleWorkerMessage(message: RoutingMessage): void {
     if (!this.currentJob) {
       console.warn('[RoutingWorkerPool] Received message but no current job:', message);
       return;
     }
 
-    const { type, error } = message;
+    const { type, error } = message as any;
 
     if (type === 'result') {
       if (error) {

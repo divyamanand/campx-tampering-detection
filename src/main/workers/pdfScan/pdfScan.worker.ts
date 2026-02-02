@@ -10,10 +10,10 @@
  */
 
 import { parentPort } from 'worker_threads';
-import { PDFManager } from '../services/PDFManager';
-import { VerificationService } from '../services/VerificationService';
+import { PDFManager } from '../../services/PDFManager';
+import { VerificationService } from '../../services/VerificationService';
 import type { WorkerScanRequest, WorkerProgressEvent, WorkerResultEvent, WorkerErrorEvent } from './types';
-import type { VerificationResult } from '../services/VerificationService';
+import type { VerificationResult } from '../../services/VerificationService';
 
 /**
  * Initialize ZXing and services once (reused across multiple jobs)

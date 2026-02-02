@@ -21,12 +21,12 @@ import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import type { BatchSettings, BatchState, BatchProgressEvent, BatchResult } from '../types/BatchSettings';
 import { DEFAULT_BATCH_SETTINGS } from '../types/BatchSettings';
-import { getWorkerPool } from '../workers/WorkerPool';
-import type { WorkerJob } from '../workers/Job';
+import { getWorkerPool } from '../workers/pdfScan/WorkerPool';
+import type { WorkerJob } from '../workers/pdfScan/types';
 import { randomUUID } from 'crypto';
 import { getBatchLogger } from './BatchLogger';
 import { createLogEntry } from '../types/LogEntry';
-import { getRoutingWorkerPool } from '../workers/RoutingWorkerPool';
+import { getRoutingWorkerPool } from '../workers/routing/RoutingWorkerPool';
 import type { FileStatus } from './FileRoutingService';
 
 /**

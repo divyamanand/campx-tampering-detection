@@ -12,9 +12,8 @@
 
 import { Worker } from 'worker_threads';
 import path from 'path';
-import { WORKER_POOL_SIZE, WORKER_CONFIG, logPoolDebug, logPoolError } from '../config/worker.config';
-import type { WorkerJob, WorkerState, PoolStats } from './Job';
-import type { WorkerMessage } from './types';
+import { WORKER_POOL_SIZE, WORKER_CONFIG, logPoolDebug, logPoolError } from '../../config/worker.config';
+import type { WorkerJob, WorkerState, PoolStats, WorkerMessage } from './types';
 
 /**
  * WorkerPool - Manages a pool of worker threads
@@ -54,7 +53,7 @@ export class WorkerPool {
   };
 
   constructor() {
-    this.workerPath = path.join(__dirname, '../workers/pdfScan.worker.js');
+    this.workerPath = path.join(__dirname, './pdfScan.worker.js');
     logPoolDebug(`Pool config: size=${WORKER_POOL_SIZE}, maxQueue=${WORKER_CONFIG.maxQueueSize}`);
   }
 

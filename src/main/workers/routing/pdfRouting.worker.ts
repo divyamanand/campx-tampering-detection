@@ -12,24 +12,9 @@
  */
 
 import { parentPort } from 'worker_threads';
-import { FileRoutingService } from '../services/FileRoutingService';
-import type { FileStatus } from '../services/FileRoutingService';
-
-interface RoutingJobRequest {
-  fileName: string;
-  sourcePath: string;
-  baseDir: string;
-  finalStatus: FileStatus;
-}
-
-interface RoutingResultMessage {
-  type: 'result';
-}
-
-interface RoutingErrorMessage {
-  type: 'error';
-  error: string;
-}
+import { FileRoutingService } from '../../services/FileRoutingService';
+import type { FileStatus } from '../../services/FileRoutingService';
+import type { RoutingJobRequest, RoutingMessage } from './types';
 
 /**
  * Initialize routing service once (reused across all jobs)
@@ -76,7 +61,7 @@ async function ensureFolderExists(folderPath: string): Promise<void> {
 function sendResult(success: boolean, error?: string): void {
   if (!parentPort) return;
 
-  const message: RoutingResultMessage | RoutingErrorMessage = error
+  const message: RoutingMessage = error
     ? {
         type: 'error',
         error,

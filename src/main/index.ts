@@ -4,7 +4,7 @@ import { initializeScannerHandlers } from './scanner';
 import { prepareZXingModule } from 'zxing-wasm/reader';
 import { readFileSync } from 'node:fs';
 import { getSettingsService, initializeSettings, type AppSettings } from './utils/SettingsService';
-import { initializeRoutingWorkerPool } from './workers/RoutingWorkerPool';
+import { initializeRoutingWorkerPool } from './workers/routing/RoutingWorkerPool';
 
 // Main window reference for sending events from worker threads
 let mainWindow: BrowserWindow | undefined;
