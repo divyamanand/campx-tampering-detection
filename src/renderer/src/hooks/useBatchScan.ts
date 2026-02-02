@@ -39,13 +39,36 @@ export const useBatchScan = (): UseBatchScanReturn => {
   // Set up listener for batch progress events from main process
   useEffect(() => {
     const handleBatchProgress = (progressData: unknown) => {
-      const progress = progressData as BatchProgressEvent;
-      setBatchProgress(progress);
+      try {
+        const progress = progressData as BatchProgressEvent;
 
-      // Update scanning state based on progress type
-      if (progress.type === 'batch-complete' || progress.type === 'batch-error') {
-        setScanning(false);
-        setPaused(false);
+        // Validate progress event has required fields
+        if (!progress.type) {
+          console.error('Invalid progress event: missing type', progress);
+          return;
+        }
+
+        console.log(
+          `[Progress Emitter] ${progress.type}: ${progress.totalProcessed}/${progress.totalFiles} files | ` +
+          `${progress.throughputPerSec?.toFixed(2) || '0'} f/s | ` +
+          `ETA: ${progress.estimatedRemainingMins !== undefined ? progress.estimatedRemainingMins.toFixed(2) + ' min' : 'N/A'}`
+        );
+
+        setBatchProgress(progress);
+
+        // Update scanning state based on progress type
+        if (progress.type === 'batch-complete') {
+          setScanning(false);
+          setPaused(false);
+          console.log('[Progress Emitter] Batch completed successfully');
+        } else if (progress.type === 'batch-error') {
+          setScanning(false);
+          setPaused(false);
+          setError(progress.error || 'Batch processing failed');
+          console.error('[Progress Emitter] Batch error:', progress.error);
+        }
+      } catch (err) {
+        console.error('[Progress Emitter] Failed to process progress event:', err);
       }
     };
 
@@ -60,6 +83,8 @@ export const useBatchScan = (): UseBatchScanReturn => {
   // Poll batch state to complement progress events
   useEffect(() => {
     if (!scanning) {
+      // Clear state when not scanning
+      setBatchState(null);
       return;
     }
 
@@ -68,17 +93,33 @@ export const useBatchScan = (): UseBatchScanReturn => {
         const response = await scannerService.getBatchState();
         if (response.success && response.result) {
           setBatchState(response.result);
+        } else if (!response.success) {
+          console.warn('[Batch State Poll] Failed to get batch state:', response.error);
         }
       } catch (err) {
-        console.error('Failed to fetch batch state:', err);
+        console.error('[Batch State Poll] Error fetching batch state:', err);
       }
     }, 1000); // Poll every 1 second during scanning
+
+    // Initial poll on mount
+    (async () => {
+      try {
+        const response = await scannerService.getBatchState();
+        if (response.success && response.result) {
+          setBatchState(response.result);
+        }
+      } catch (err) {
+        console.error('[Batch State Poll] Initial poll failed:', err);
+      }
+    })();
 
     return () => clearInterval(pollInterval);
   }, [scanning]);
 
   const startBatch = useCallback(
     async (settings: BatchSettings): Promise<void> => {
+      console.log('[useBatchScan] Starting batch from directory:', settings.directory);
+
       setScanning(true);
       setPaused(false);
       setError(null);
@@ -89,75 +130,100 @@ export const useBatchScan = (): UseBatchScanReturn => {
         const response = await scannerService.startBatch(settings);
 
         if (!response.success) {
-          setError(response.error || 'Failed to start batch');
+          const errorMsg = response.error || 'Failed to start batch';
+          setError(errorMsg);
           setScanning(false);
+          console.error('[useBatchScan] Start batch failed:', errorMsg);
         } else {
+          console.log('[useBatchScan] Batch started successfully');
+
           // Fetch initial batch state after successful start
           try {
             const stateResponse = await scannerService.getBatchState();
             if (stateResponse.success && stateResponse.result) {
               setBatchState(stateResponse.result);
+              console.log('[useBatchScan] Initial batch state fetched');
             }
           } catch (err) {
-            console.error('Failed to fetch initial batch state:', err);
+            console.error('[useBatchScan] Failed to fetch initial batch state:', err);
           }
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setError(errorMessage);
         setScanning(false);
+        console.error('[useBatchScan] Start batch exception:', errorMessage);
       }
     },
     []
   );
 
   const pause = useCallback(async (): Promise<void> => {
+    console.log('[useBatchScan] Pausing batch');
+
     try {
       const response = await scannerService.pauseBatch();
 
       if (response.success) {
         setPaused(true);
+        console.log('[useBatchScan] Batch paused successfully');
       } else {
-        setError(response.error || 'Failed to pause batch');
+        const errorMsg = response.error || 'Failed to pause batch';
+        setError(errorMsg);
+        console.error('[useBatchScan] Pause failed:', errorMsg);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
+      console.error('[useBatchScan] Pause exception:', errorMessage);
     }
   }, []);
 
   const resume = useCallback(async (): Promise<void> => {
+    console.log('[useBatchScan] Resuming batch');
+
     try {
       const response = await scannerService.resumeBatch();
 
       if (response.success) {
         setPaused(false);
+        console.log('[useBatchScan] Batch resumed successfully');
       } else {
-        setError(response.error || 'Failed to resume batch');
+        const errorMsg = response.error || 'Failed to resume batch';
+        setError(errorMsg);
+        console.error('[useBatchScan] Resume failed:', errorMsg);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
+      console.error('[useBatchScan] Resume exception:', errorMessage);
     }
   }, []);
 
   const stop = useCallback(async (): Promise<void> => {
+    console.log('[useBatchScan] Stopping batch');
+
     try {
       const response = await scannerService.stopBatch();
 
       if (response.success) {
         setScanning(false);
         setPaused(false);
+        console.log('[useBatchScan] Batch stopped successfully');
       } else {
-        setError(response.error || 'Failed to stop batch');
+        const errorMsg = response.error || 'Failed to stop batch';
+        setError(errorMsg);
+        console.error('[useBatchScan] Stop failed:', errorMsg);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
+      console.error('[useBatchScan] Stop exception:', errorMessage);
     }
   }, []);
 
   const reset = useCallback(() => {
+    console.log('[useBatchScan] Resetting batch state');
     setScanning(false);
     setPaused(false);
     setBatchState(null);

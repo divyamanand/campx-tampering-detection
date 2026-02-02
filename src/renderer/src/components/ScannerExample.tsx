@@ -27,6 +27,21 @@ function formatTime(ms: number): string {
 }
 
 /**
+ * Format estimated remaining time in minutes to readable format
+ */
+function formatRemainingTime(minutes: number): string {
+  if (minutes < 1) {
+    return '< 1 min';
+  } else if (minutes < 60) {
+    return `${Math.round(minutes)} min${Math.round(minutes) !== 1 ? 's' : ''}`;
+  } else {
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    return `${hours}h ${mins}m`;
+  }
+}
+
+/**
  * ScannerExample Component
  *
  * Batch-based PDF scanning with:
@@ -419,15 +434,16 @@ export const ScannerExample: React.FC = () => {
 
                 {/* Progress Metrics Grid */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.9rem' }}>
-                  <div><strong>Current Batch:</strong> #{batchProgress.batchIndex}</div>
-                  <div><strong>Processed in Batch:</strong> {batchProgress.processedInBatch} files</div>
                   <div><strong>Queued Files:</strong> {batchProgress.queuedFiles}</div>
-                  <div><strong>Event Type:</strong> <span style={{ color: batchProgress.type === 'batch-progress' ? '#2563eb' : batchProgress.type === 'batch-complete' ? '#10b981' : '#dc2626' }}>{batchProgress.type}</span></div>
                   {batchProgress.throughputPerSec !== undefined && (
-                    <div><strong>⚙️ Throughput:</strong> {batchProgress.throughputPerSec.toFixed(2)} files/sec</div>
+                    <div><strong>⚙️ Throughput:</strong> <span style={{ color: '#059669', fontWeight: 'bold' }}>{batchProgress.throughputPerSec.toFixed(2)} files/sec</span></div>
                   )}
                   {batchProgress.estimatedRemainingMins !== undefined && (
-                    <div><strong>⏳ Est. Remaining:</strong> {batchProgress.estimatedRemainingMins} min(s)</div>
+                    <div><strong>⏳ Est. Remaining:</strong> <span style={{ color: '#059669', fontWeight: 'bold' }}>{formatRemainingTime(batchProgress.estimatedRemainingMins)}</span></div>
+                  )}
+                  <div><strong>Event Type:</strong> <span style={{ color: batchProgress.type === 'batch-progress' ? '#2563eb' : batchProgress.type === 'batch-complete' ? '#10b981' : '#dc2626', fontWeight: 'bold' }}>{batchProgress.type}</span></div>
+                  {batchProgress.elapsedMs !== undefined && (
+                    <div><strong>Elapsed:</strong> <span style={{ color: '#6366f1' }}>{formatTime(batchProgress.elapsedMs)}</span></div>
                   )}
                 </div>
               </div>
@@ -514,17 +530,36 @@ export const ScannerExample: React.FC = () => {
             <h4 style={{ marginTop: 0 }}>
               {batchProgress.type === 'batch-error' ? '❌ Batch Failed' : '✅ Batch Completed'}
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.9rem' }}>
-              <div><strong>Total Processed:</strong> {batchProgress.totalProcessed}</div>
-              <div><strong>Total Files:</strong> {batchProgress.totalFiles}</div>
-              <div><strong>Elapsed:</strong> {formatTime(batchProgress.elapsedMs)}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', fontSize: '0.9rem' }}>
+              <div>
+                <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.25rem' }}>Total Processed</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#059669' }}>{batchProgress.totalProcessed}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.25rem' }}>Total Files</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#059669' }}>{batchProgress.totalFiles}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.25rem' }}>Time Elapsed</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#059669' }}>{formatTime(batchProgress.elapsedMs)}</div>
+              </div>
               {batchProgress.throughputPerSec !== undefined && (
-                <div><strong>Avg Throughput:</strong> {batchProgress.throughputPerSec.toFixed(2)} files/sec</div>
+                <div>
+                  <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.25rem' }}>Throughput</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0284c7' }}>{batchProgress.throughputPerSec.toFixed(2)} f/s</div>
+                </div>
               )}
+              <div>
+                <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.25rem' }}>Success Rate</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#10b981' }}>
+                  {batchProgress.totalFiles > 0 ? Math.round((batchProgress.totalProcessed / batchProgress.totalFiles) * 100) : 0}%
+                </div>
+              </div>
             </div>
             {batchProgress.error && (
-              <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#fee2e2', borderRadius: '4px', color: '#991b1b' }}>
-                <strong>Error:</strong> {batchProgress.error}
+              <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fee2e2', borderRadius: '4px', color: '#991b1b', border: '1px solid #fecaca' }}>
+                <strong>⚠️ Error Details:</strong>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>{batchProgress.error}</div>
               </div>
             )}
           </div>

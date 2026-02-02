@@ -609,40 +609,58 @@ export class BatchOrchestrator {
     type: 'batch-progress' | 'batch-complete' | 'batch-error',
     errorMsg?: string
   ): void {
-    const elapsed = Date.now() - (this.state.startedAt || Date.now());
-    const totalToProcess = this.state.totalFiles;
-    const remaining = this.state.queuedFiles;
+    // Calculate elapsed time since batch started
+    const elapsedMs = Date.now() - (this.state.startedAt || Date.now());
 
-    // Calculate throughput
+    // Calculate throughput (files per second)
+    const elapsedSeconds = elapsedMs / 1000;
     const throughputPerSec =
-      elapsed > 0 ? (this.state.processedFiles / (elapsed / 1000)).toFixed(2) : '0';
+      elapsedSeconds > 0 ? this.filesProcessed / elapsedSeconds : 0;
 
-    // Estimate remaining time
-    const remainingTimeMs =
-      throughputPerSec !== '0' ? (remaining / parseFloat(throughputPerSec)) * 1000 : 0;
-    const estimatedRemainingMins = Math.ceil(remainingTimeMs / 60000);
+    // Calculate estimated remaining time (minutes)
+    let estimatedRemainingMins: number | undefined;
+    if (throughputPerSec > 0 && this.filesRemainingInRoot > 0) {
+      const remainingSeconds = this.filesRemainingInRoot / throughputPerSec;
+      estimatedRemainingMins = remainingSeconds / 60;
+    }
 
+    // Create progress event
     const event: BatchProgressEvent = {
       type,
-      processedInBatch: 0, // TODO: Track per batch
-      totalProcessed: this.state.processedFiles,
-      totalFiles: totalToProcess,
+      processedInBatch: 0, // Not used in new architecture, but kept for compatibility
+      totalProcessed: this.filesProcessed,
+      totalFiles: this.totalFilesDiscovered,
       batchIndex: this.state.currentBatchIndex,
-      queuedFiles: remaining,
-      elapsedMs: elapsed,
-      throughputPerSec: parseFloat(throughputPerSec),
-      estimatedRemainingMins: remainingTimeMs > 0 ? estimatedRemainingMins : undefined,
+      queuedFiles: this.filesRemainingInRoot,
+      elapsedMs,
+      throughputPerSec: throughputPerSec > 0 ? Math.round(throughputPerSec * 100) / 100 : 0,
+      estimatedRemainingMins:
+        estimatedRemainingMins !== undefined
+          ? Math.round(estimatedRemainingMins * 100) / 100
+          : undefined,
       error: errorMsg,
     };
 
+    // Log progress for debugging
+    if (type === 'batch-progress') {
+      console.log(
+        `[Progress] Processed: ${this.filesProcessed}/${this.totalFilesDiscovered} | ` +
+          `Remaining: ${this.filesRemainingInRoot} | ` +
+          `Throughput: ${event.throughputPerSec} files/sec | ` +
+          `ETA: ${event.estimatedRemainingMins !== undefined ? event.estimatedRemainingMins.toFixed(2) + ' mins' : 'N/A'}`
+      );
+    } else if (type === 'batch-error') {
+      console.error(`[Progress] Error: ${errorMsg}`);
+    }
+
     // Emit to all listeners
-    this.progressCallbacks.forEach((callback) => {
+    for (const callback of this.progressCallbacks) {
       try {
         callback(event);
       } catch (error) {
         console.error('[Orchestrator] Progress callback error:', error);
       }
-    });
+    }
   }
 
   /**
