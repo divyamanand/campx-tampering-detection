@@ -26,6 +26,8 @@ import type { WorkerJob } from '../workers/Job';
 import { randomUUID } from 'crypto';
 import { getBatchLogger } from './BatchLogger';
 import { createLogEntry } from '../types/LogEntry';
+import { getFileRoutingService } from './FileRoutingService';
+import type { FileStatus } from './FileRoutingService';
 
 /**
  * BatchOrchestrator - Manages batch directory scanning
@@ -383,6 +385,7 @@ export class BatchOrchestrator {
    */
   private async processBatch(files: string[]): Promise<void> {
     const pool = getWorkerPool();
+    const router = getFileRoutingService();
 
     console.log(
       `[Orchestrator] Processing batch ${this.state.currentBatchIndex} (${files.length} files)`
@@ -390,85 +393,174 @@ export class BatchOrchestrator {
 
     const batchStartTime = Date.now();
 
+    // Define job result types for better type safety
+    type JobSuccess = { filePath: string; fileName: string; success: true; result: any };
+    type JobError = { filePath: string; fileName: string; success: false; error: Error };
+    type JobResult = JobSuccess | JobError;
+
     // Create jobs for all files in batch
-    const jobPromises = files.map((filePath) => {
+    const jobPromises = files.map(async (filePath): Promise<JobResult> => {
       const jobId = randomUUID();
       const fileName = path.basename(filePath);
 
-      // TODO: Get buffer from filePath
-      // For now, this is a placeholder - would need fs.readFile
-      const job: WorkerJob = {
-        id: jobId,
-        buffer: new ArrayBuffer(0), // TODO: Read actual file
-        fileName,
-        config: {
-          initialScale: this.settings.pdfConfig?.initialScale ?? 3,
-          enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
-          rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
-        },
-        resolve: () => {},
-        reject: () => {},
-        onProgress: () => {
-          // Progress from individual files
-        },
-      };
+      try {
+        // Read file buffer
+        const fileBuffer = await readFile(filePath);
 
-      return pool.submit(job).then((result) => {
-        this.state.processedFiles++;
-        this.processedFiles.add(filePath);
-        this.stats.totalFilesProcessed++;
-        return result;
-      });
-    });
-
-    // Wait for all jobs in batch (allSettled = one failure doesn't kill batch)
-    const results = await Promise.allSettled(jobPromises);
-
-    // Create log entries for each result (STEP 4.4)
-    for (let i = 0; i < results.length; i++) {
-      const filePath = files[i];
-      const fileName = path.basename(filePath);
-      const result = results[i];
-      const fileStartTime = batchStartTime + i * 100; // Approximate
-
-      let logEntry;
-
-      if (result.status === 'fulfilled') {
-        // Success
-        logEntry = createLogEntry({
+        const job: WorkerJob = {
+          id: jobId,
+          buffer: fileBuffer.buffer as ArrayBuffer,
           fileName,
-          absolutePath: filePath,
-          batchId: this.currentBatchId,
-          batchIndex: this.state.currentBatchIndex,
-          startTime: fileStartTime,
-          endTime: Date.now(),
-          durationMs: Date.now() - fileStartTime,
-          status: 'SUCCESS',
-          results: result.value?.results || {},
-          totalPages: result.value?.totalPages || 0,
           config: {
             initialScale: this.settings.pdfConfig?.initialScale ?? 3,
             enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
             rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
           },
+          resolve: () => {},
+          reject: () => {},
+          onProgress: () => {
+            // Progress from individual files
+          },
+        };
+
+        return pool.submit(job).then((result) => {
+          this.state.processedFiles++;
+          this.processedFiles.add(filePath);
+          this.stats.totalFilesProcessed++;
+          return { filePath, fileName, success: true, result } as JobSuccess;
         });
+      } catch (error) {
+        console.error(`[Orchestrator] Failed to read file ${filePath}:`, error);
+        return {
+          filePath,
+          fileName,
+          success: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        } as JobError;
+      }
+    });
+
+    // Wait for all jobs in batch (allSettled = one failure doesn't kill batch)
+    const results = await Promise.allSettled(jobPromises);
+
+    // Create log entries and route files (STEP 4.4)
+    for (let i = 0; i < results.length; i++) {
+      const filePath = files[i];
+      const fileName = path.basename(filePath);
+      const result = results[i];
+      const fileStartTime = batchStartTime + i * 100; // Approximate
+      const fileEndTime = Date.now();
+
+      let logEntry;
+      let fileStatus: FileStatus = 'upload_failed';
+
+      if (result.status === 'fulfilled' && result.value.success) {
+        // Worker succeeded - safe to access result.value.result
+        const jobResult = result.value.result;
+        const verificationResult = jobResult.verificationResult;
+
+        // Determine file routing based on verification result
+        if (verificationResult?.status === 'tampered') {
+          fileStatus = 'tampered';
+          logEntry = createLogEntry({
+            fileName,
+            absolutePath: filePath,
+            batchId: this.currentBatchId,
+            batchIndex: this.state.currentBatchIndex,
+            startTime: fileStartTime,
+            endTime: fileEndTime,
+            durationMs: fileEndTime - fileStartTime,
+            status: 'PARTIAL',
+            results: jobResult.results || {},
+            totalPages: jobResult.totalPages || 0,
+            error: {
+              message: `Tampering detected: ${verificationResult.reason}`,
+              code: 'TAMPERING_DETECTED',
+              timestamp: fileEndTime,
+            },
+            config: {
+              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
+              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
+              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
+            },
+            metadata: {
+              tags: ['tampered'],
+            },
+          });
+        } else if (verificationResult?.status === 'retry') {
+          fileStatus = 'retry';
+          logEntry = createLogEntry({
+            fileName,
+            absolutePath: filePath,
+            batchId: this.currentBatchId,
+            batchIndex: this.state.currentBatchIndex,
+            startTime: fileStartTime,
+            endTime: fileEndTime,
+            durationMs: fileEndTime - fileStartTime,
+            status: 'PARTIAL',
+            results: jobResult.results || {},
+            totalPages: jobResult.totalPages || 0,
+            error: {
+              message: `Verification retry needed: ${verificationResult.reason}`,
+              code: 'RETRY_NEEDED',
+              timestamp: fileEndTime,
+            },
+            config: {
+              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
+              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
+              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
+            },
+            metadata: {
+              tags: ['retry'],
+            },
+          });
+        } else {
+          // Scan passed verification
+          fileStatus = 'scan_passed';
+          logEntry = createLogEntry({
+            fileName,
+            absolutePath: filePath,
+            batchId: this.currentBatchId,
+            batchIndex: this.state.currentBatchIndex,
+            startTime: fileStartTime,
+            endTime: fileEndTime,
+            durationMs: fileEndTime - fileStartTime,
+            status: 'SUCCESS',
+            results: jobResult.results || {},
+            totalPages: jobResult.totalPages || 0,
+            config: {
+              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
+              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
+              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
+            },
+            metadata: {
+              tags: ['scan_passed'],
+            },
+          });
+        }
       } else {
-        // Failure
-        const error = result.reason;
+        // Worker failed - safe to access error property
+        let error: Error;
+        if (result.status === 'fulfilled' && !result.value.success) {
+          error = result.value.error;
+        } else {
+          error = result.status === 'rejected' ? result.reason : new Error('Unknown error');
+        }
+        fileStatus = 'upload_failed';
         logEntry = createLogEntry({
           fileName,
           absolutePath: filePath,
           batchId: this.currentBatchId,
           batchIndex: this.state.currentBatchIndex,
           startTime: fileStartTime,
-          endTime: Date.now(),
-          durationMs: Date.now() - fileStartTime,
+          endTime: fileEndTime,
+          durationMs: fileEndTime - fileStartTime,
           status: 'FAILED',
           results: {},
           totalPages: 0,
           error: {
             message: error instanceof Error ? error.message : String(error),
-            timestamp: Date.now(),
+            timestamp: fileEndTime,
           },
           config: {
             initialScale: this.settings.pdfConfig?.initialScale ?? 3,
@@ -478,15 +570,30 @@ export class BatchOrchestrator {
         });
       }
 
-      // Add entry to logger (STEP 4.4)
+      // Route file to appropriate directory
+      try {
+        const newFilePath = await router.move(filePath, fileStatus);
+        console.log(`[Orchestrator] File routed: ${fileName} → ${router.getStatusDisplayName(fileStatus)}`);
+        // Update log entry with new path
+        logEntry.absolutePath = newFilePath;
+      } catch (moveError) {
+        console.error(`[Orchestrator] Failed to move file ${filePath}:`, moveError);
+        // Don't fail the batch - file stays in place but is logged
+        logEntry.metadata = logEntry.metadata || {};
+        logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'move_failed'];
+      }
+
+      // Add entry to logger
       if (this.logger) {
         this.logger.addEntry(logEntry);
       }
     }
 
     // Count successes and failures
-    const successes = results.filter((r) => r.status === 'fulfilled').length;
-    const failures = results.filter((r) => r.status === 'rejected').length;
+    const successes = results.filter(
+      (r) => r.status === 'fulfilled' && r.value.success
+    ).length;
+    const failures = results.length - successes;
 
     const batchDuration = Date.now() - batchStartTime;
     this.stats.totalTimeElapsed += batchDuration;
