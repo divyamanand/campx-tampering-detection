@@ -378,62 +378,130 @@ export const ScannerExample: React.FC = () => {
 
         {scanning && (
           <div style={styles.progress}>
-            {/* Batch State Data */}
-            {batchState && (
-              <div style={{ marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid #d1d5db' }}>
-                <h4 style={{ marginTop: 0, color: '#1f2937' }}>📊 Batch State (from getBatchState)</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.9rem' }}>
-                  <div><strong>Active:</strong> {batchState.active ? '✓ Yes' : '✗ No'}</div>
-                  <div><strong>Paused:</strong> {batchState.paused ? '⏸️ Yes' : '✓ No'}</div>
-                  <div><strong>Total Files:</strong> {batchState.totalFiles}</div>
-                  <div><strong>Processed:</strong> {batchState.processedFiles}</div>
-                  <div><strong>Queued:</strong> {batchState.queuedFiles}</div>
-                  <div><strong>Batch #:</strong> {batchState.currentBatchIndex}</div>
-                  <div><strong>Elapsed:</strong> {formatTime(batchState.elapsedMs)}</div>
-                </div>
-              </div>
-            )}
-
-            {/* Progress Event Data */}
+            {/* Real-time Progress from Emitter */}
             {batchProgress && (
-              <div>
-                <h4 style={{ marginTop: 0, color: '#1f2937' }}>📈 Progress Event (from onBatchProgress)</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.9rem' }}>
-                  <div><strong>Event Type:</strong> {batchProgress.type}</div>
-                  <div><strong>Current Batch:</strong> #{batchProgress.batchIndex}</div>
-                  <div><strong>Processed in Batch:</strong> {batchProgress.processedInBatch}</div>
-                  <div><strong>Total Processed:</strong> {batchProgress.totalProcessed}</div>
-                  <div><strong>Total Files:</strong> {batchProgress.totalFiles}</div>
-                  <div><strong>Queued:</strong> {batchProgress.queuedFiles}</div>
-                  <div><strong>Elapsed:</strong> {formatTime(batchProgress.elapsedMs)}</div>
-                  {batchProgress.throughputPerSec !== undefined && (
-                    <div><strong>Throughput:</strong> {batchProgress.throughputPerSec.toFixed(2)} files/sec</div>
-                  )}
-                  {batchProgress.estimatedRemainingMins !== undefined && (
-                    <div><strong>Est. Remaining:</strong> {batchProgress.estimatedRemainingMins} min(s)</div>
-                  )}
-                </div>
+              <div style={{ marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid #d1d5db' }}>
+                <h4 style={{ marginTop: 0, color: '#1f2937' }}>⚡ Real-time Progress (from onBatchProgress emitter)</h4>
 
                 {/* Progress Bar */}
-                <div style={{ marginTop: '1rem' }}>
+                <div style={{ marginBottom: '1rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-                    <span>Progress: {batchProgress.totalProcessed} / {batchProgress.totalFiles}</span>
-                    <span>{Math.round((batchProgress.totalProcessed / batchProgress.totalFiles) * 100)}%</span>
+                    <span><strong>Files Processed:</strong> {batchProgress.totalProcessed} / {batchProgress.totalFiles}</span>
+                    <span><strong>{Math.round((batchProgress.totalProcessed / batchProgress.totalFiles) * 100)}%</strong></span>
                   </div>
                   <div style={{
                     width: '100%',
-                    height: '24px',
+                    height: '28px',
                     backgroundColor: '#e5e7eb',
-                    borderRadius: '4px',
+                    borderRadius: '6px',
                     overflow: 'hidden',
-                    border: '1px solid #d1d5db'
+                    border: '1px solid #d1d5db',
+                    display: 'flex',
+                    alignItems: 'center',
                   }}>
                     <div style={{
                       height: '100%',
                       width: `${Math.round((batchProgress.totalProcessed / batchProgress.totalFiles) * 100)}%`,
                       backgroundColor: '#10b981',
-                      transition: 'width 0.3s ease'
-                    }} />
+                      transition: 'width 0.3s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      paddingRight: '8px',
+                      color: 'white',
+                      fontSize: '0.75rem',
+                      fontWeight: 'bold'
+                    }} >
+                      {Math.round((batchProgress.totalProcessed / batchProgress.totalFiles) * 100)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress Metrics Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.9rem' }}>
+                  <div><strong>Current Batch:</strong> #{batchProgress.batchIndex}</div>
+                  <div><strong>Processed in Batch:</strong> {batchProgress.processedInBatch} files</div>
+                  <div><strong>Queued Files:</strong> {batchProgress.queuedFiles}</div>
+                  <div><strong>Event Type:</strong> <span style={{ color: batchProgress.type === 'batch-progress' ? '#2563eb' : batchProgress.type === 'batch-complete' ? '#10b981' : '#dc2626' }}>{batchProgress.type}</span></div>
+                  {batchProgress.throughputPerSec !== undefined && (
+                    <div><strong>⚙️ Throughput:</strong> {batchProgress.throughputPerSec.toFixed(2)} files/sec</div>
+                  )}
+                  {batchProgress.estimatedRemainingMins !== undefined && (
+                    <div><strong>⏳ Est. Remaining:</strong> {batchProgress.estimatedRemainingMins} min(s)</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Batch State from Polling */}
+            {batchState && (
+              <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid #d1d5db' }}>
+                <h4 style={{ marginTop: 0, color: '#1f2937' }}>📊 Batch State (from getBatchState polling)</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', fontSize: '0.9rem' }}>
+                  <div>
+                    <strong>Status:</strong>
+                    <div style={{
+                      display: 'inline-block',
+                      marginLeft: '0.5rem',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: batchState.active ? '#dcfce7' : '#f3f4f6',
+                      color: batchState.active ? '#166534' : '#6b7280',
+                      fontSize: '0.85rem'
+                    }}>
+                      {batchState.active ? '🟢 Active' : '⚪ Inactive'}
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Pause:</strong>
+                    <div style={{
+                      display: 'inline-block',
+                      marginLeft: '0.5rem',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: batchState.paused ? '#fef3c7' : '#f3f4f6',
+                      color: batchState.paused ? '#b45309' : '#6b7280',
+                      fontSize: '0.85rem'
+                    }}>
+                      {batchState.paused ? '⏸️ Paused' : '▶️ Running'}
+                    </div>
+                  </div>
+                  <div><strong>Elapsed:</strong> {formatTime(batchState.elapsedMs)}</div>
+                  <div><strong>Total Files:</strong> {batchState.totalFiles}</div>
+                  <div><strong>Processed:</strong> {batchState.processedFiles}</div>
+                  <div><strong>Remaining:</strong> {batchState.queuedFiles}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Combined Stats */}
+            {batchProgress && batchState && (
+              <div style={{
+                padding: '1rem',
+                backgroundColor: '#f0fdf4',
+                borderRadius: '6px',
+                border: '1px solid #bbf7d0',
+                fontSize: '0.9rem'
+              }}>
+                <h4 style={{ marginTop: 0, marginBottom: '0.75rem', color: '#166534' }}>📈 Combined Statistics</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Efficiency</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#059669' }}>
+                      {batchProgress.throughputPerSec ? batchProgress.throughputPerSec.toFixed(2) : '0'} f/s
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Completion</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#059669' }}>
+                      {Math.round((batchProgress.totalProcessed / batchProgress.totalFiles) * 100)}%
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Time Elapsed</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#059669' }}>
+                      {formatTime(batchState.elapsedMs)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -469,12 +537,18 @@ export const ScannerExample: React.FC = () => {
         <ul style={{ margin: '0.5rem 0', paddingLeft: '1.5rem' }}>
           <li><strong>Scanning:</strong> Converts PDFs to images and detects barcodes</li>
           <li><strong>Verification:</strong> Checks for tampering (code mismatches, missing QRs, invalid page counts)</li>
-          <li><strong>Routing:</strong> Automatically organizes files into folders based on scan results</li>
-          <li><strong>Logging:</strong> Crash-safe batch logs with resume capability</li>
+          <li><strong>Routing:</strong> Automatically organizes files into folders based on verification results</li>
+          <li><strong>Logging:</strong> Crash-safe batch logs with processing statistics</li>
+          <li><strong>Real-time Monitoring:</strong> Live progress events and state polling for accurate tracking</li>
         </ul>
-        <p style={{ fontSize: '0.9rem', color: '#0c4a6e', margin: 0 }}>
-          Files are organized into: <code>tampered/</code>, <code>retry/</code>, <code>scan_passed/</code>
+        <p style={{ fontSize: '0.9rem', color: '#0c4a6e', margin: '0.75rem 0 0 0' }}>
+          <strong>File Organization:</strong>
         </p>
+        <ul style={{ margin: '0.25rem 0', paddingLeft: '1.5rem', fontSize: '0.9rem' }}>
+          <li><code>tampered/</code> - Files with detected tampering or missing barcodes</li>
+          <li><code>scan_passed/</code> - Files that passed all verification checks</li>
+          <li><em>(Root directory)</em> - Files with undefined verification status (kept for review/retry)</li>
+        </ul>
       </div>
     </div>
   );

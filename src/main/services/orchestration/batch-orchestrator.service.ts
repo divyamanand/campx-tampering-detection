@@ -25,7 +25,7 @@ import { getWorkerPool } from '../../workers/pdfScan/worker-pool.service';
 import type { WorkerJob } from '../../workers/pdfScan/worker.types';
 import { randomUUID } from 'crypto';
 import { getBatchLogger } from '../logging/batch-logger.service';
-import { createLogEntry } from '../../types/logEntry.types';
+import type { ProcessingStatus } from '../../types/logEntry.types';
 import { getRoutingWorkerPool } from '../../workers/routing/routing-worker-pool.service';
 import type { FileStatus } from '../file-operations/file-routing.service';
 
@@ -39,14 +39,19 @@ export class BatchOrchestrator {
   private settings: BatchSettings;
 
   /**
-   * Queue of PDF file paths waiting to be processed
+   * Total files discovered during this batch (cumulative count)
    */
-  private queue: string[] = [];
+  private totalFilesDiscovered: number = 0;
 
   /**
-   * Set of files already processed (to avoid duplicates)
+   * Files successfully processed and routed
    */
-  private processedFiles: Set<string> = new Set();
+  private filesProcessed: number = 0;
+
+  /**
+   * Current files in root directory (not yet processed)
+   */
+  private filesRemainingInRoot: number = 0;
 
   /**
    * Batch logger (created when batch starts)
@@ -122,15 +127,12 @@ export class BatchOrchestrator {
     this.state.paused = false;
     this.state.startedAt = Date.now();
     this.batchStartTime = Date.now();
-    this.processedFiles.clear();
-    this.queue = [];
+    this.totalFilesDiscovered = 0;
+    this.filesProcessed = 0;
+    this.filesRemainingInRoot = 0;
 
     // Initialize logger (STEP 4.4, 4.6)
     this.logger = getBatchLogger(settings.directory);
-
-    // Load previously processed files (STEP 4.7)
-    const previouslyProcessed = await this.logger.getProcessedFiles();
-    this.processedFiles = previouslyProcessed;
 
     // Start directory polling
     this.startPolling();
@@ -216,7 +218,9 @@ export class BatchOrchestrator {
     return {
       ...this.state,
       elapsedMs: elapsed,
-      queuedFiles: this.queue.length,
+      totalFiles: this.totalFilesDiscovered,
+      processedFiles: this.filesProcessed,
+      queuedFiles: this.filesRemainingInRoot,
     };
   }
 
@@ -269,32 +273,34 @@ export class BatchOrchestrator {
   }
 
   /**
-   * Scan directory for PDF files
+   * Scan directory for PDF files in root only
+   *
+   * Since processed files are moved to subfolders (tampered/, scan_passed/),
+   * they won't be counted in subsequent scans. This allows us to track progress
+   * simply by counting remaining files in root directory.
    */
   private async scanDirectory(): Promise<void> {
     try {
       const entries = await readdir(this.settings.directory, { withFileTypes: true });
 
-      // Filter PDFs and get full paths
+      // Filter PDFs in root directory only (not in subfolders)
       const pdfFiles = entries
         .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.pdf'))
         .map((e) => path.join(this.settings.directory, e.name));
 
-      // Add new files to queue (avoid duplicates)
-      let newFilesCount = 0;
-      for (const filePath of pdfFiles) {
-        if (!this.processedFiles.has(filePath) && !this.queue.includes(filePath)) {
-          this.queue.push(filePath);
-          newFilesCount++;
-        }
+      const previousRemaining = this.filesRemainingInRoot;
+      this.filesRemainingInRoot = pdfFiles.length;
+
+      // Track total files discovered (peak count during scanning)
+      // = files processed + files remaining
+      const totalCurrent = this.filesProcessed + this.filesRemainingInRoot;
+      if (totalCurrent > this.totalFilesDiscovered) {
+        this.totalFilesDiscovered = totalCurrent;
+        console.log(`[Orchestrator] Discovered ${totalCurrent} total files (${this.filesProcessed} processed, ${this.filesRemainingInRoot} remaining)`);
       }
 
-      // Update state
-      this.state.totalFiles = this.processedFiles.size + this.queue.length;
-      this.state.queuedFiles = this.queue.length;
-
-      if (newFilesCount > 0) {
-        console.log(`[Orchestrator] Found ${newFilesCount} new files (queue size: ${this.queue.length})`);
+      if (this.filesRemainingInRoot < previousRemaining) {
+        console.log(`[Orchestrator] Processed files removed from root (${previousRemaining} → ${this.filesRemainingInRoot})`);
       }
     } catch (error) {
       console.error('[Orchestrator] Failed to scan directory:', error);
@@ -304,33 +310,31 @@ export class BatchOrchestrator {
 
   /**
    * Main processing loop
-   * Runs batches sequentially while queue has files
+   * Runs batches sequentially as files are discovered
    */
   private async processingLoop(): Promise<void> {
-    // Check if already running (avoid concurrent loops)
-    if (this.pollTimer === null && this.state.active) {
-      console.warn('[Orchestrator] Processing loop already running');
-      return;
-    }
+    let batchCount = 0;
 
     while (this.state.active && !this.state.paused) {
-      // Wait for files in queue
-      if (this.queue.length === 0) {
-        // Queue empty but still active (polling might add more)
+      // Wait for files in root directory
+      if (this.filesRemainingInRoot === 0) {
+        // No files to process - wait and retry
         await this.delay(100);
         continue;
       }
 
-      // Get next batch
-      const batch = this.createBatch();
+      // Get next batch from current directory files
+      const batch = await this.createBatch();
       if (batch.length === 0) {
-        break;
+        // No files available to batch, wait for polling to discover more
+        await this.delay(100);
+        continue;
       }
 
-      this.state.currentBatchIndex++;
+      batchCount++;
 
       try {
-        // Start batch logging (STEP 4.4, 4.6)
+        // Start batch logging
         if (this.logger) {
           this.currentBatchId = await this.logger.startBatch({
             directory: this.settings.directory,
@@ -340,10 +344,12 @@ export class BatchOrchestrator {
           });
         }
 
+        console.log(`[Orchestrator] Processing batch ${batchCount} (${batch.length} files, ${this.filesRemainingInRoot} remaining in root)`);
+
         // Process batch
         await this.processBatch(batch);
 
-        // Complete batch logging (STEP 4.5)
+        // Complete batch logging
         if (this.logger) {
           await this.logger.completeBatch('COMPLETED');
         }
@@ -351,7 +357,7 @@ export class BatchOrchestrator {
         // Clean up memory after batch
         await this.cleanupMemory();
 
-        // Emit progress (STEP 4.8 - use log buffer as source of truth)
+        // Emit progress
         if (this.logger) {
           this.emitProgress('batch-progress');
         }
@@ -373,13 +379,49 @@ export class BatchOrchestrator {
   }
 
   /**
-   * Create a batch from the queue
+   * Create a batch by reading current PDF files from root directory
    */
-  private createBatch(): string[] {
-    const batchSize = this.settings.batchSize;
-    const q =  this.queue.splice(0, batchSize);
-    console.log("QUEUE AFTER SPLICE", this.queue.length)
-    return q
+  private async createBatch(): Promise<string[]> {
+    try {
+      const entries = await readdir(this.settings.directory, { withFileTypes: true });
+
+      // Filter PDFs in root directory (not in subfolders)
+      const pdfFiles = entries
+        .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.pdf'))
+        .map((e) => path.join(this.settings.directory, e.name));
+
+      // Take up to batchSize files
+      const batchSize = this.settings.batchSize;
+      return pdfFiles.slice(0, batchSize);
+    } catch (error) {
+      console.error('[Orchestrator] Failed to create batch:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Extract simplified results from worker output
+   * Keeps only: codes [data, format], rotated, scale
+   */
+  private extractSimplifiedResults(workerResults: Record<number, any>): Record<number, any> {
+    const simplified: Record<number, any> = {};
+
+    for (const [pageNumStr, pageResult] of Object.entries(workerResults)) {
+      const pageNum = Number(pageNumStr);
+
+      if (!pageResult) continue;
+
+      simplified[pageNum] = {
+        codes: pageResult.codes?.map((code: any) => ({
+          data: code.data,
+          format: code.format,
+        })) || [],
+        rotated: pageResult.rotated ?? false,
+        scale: pageResult.scale ?? 1,
+      };
+    }
+
+    return simplified;
   }
 
   /**
@@ -432,8 +474,6 @@ export class BatchOrchestrator {
         };
 
         return pool.submit(job).then((result) => {
-          this.state.processedFiles++;
-          this.processedFiles.add(filePath);
           this.stats.totalFilesProcessed++;
           return { filePath, fileName, success: true, result } as JobSuccess;
         });
@@ -456,137 +496,53 @@ export class BatchOrchestrator {
       const filePath = files[i];
       const fileName = path.basename(filePath);
       const result = results[i];
-      const fileStartTime = batchStartTime + i * 100; // Approximate
-      const fileEndTime = Date.now();
+      const durationMs = Date.now() - batchStartTime;
 
-      let logEntry;
+      let logStatus: ProcessingStatus = 'FAILED';
+      let logResults: Record<number, unknown> = {};
       let shouldRoute = false;
       let fileStatus: FileStatus | null = null;
 
       if (result.status === 'fulfilled' && result.value.success) {
-        // Worker succeeded - safe to access result.value.result
         const jobResult = result.value.result;
         const verificationResult = jobResult.verificationResult;
 
-        // Determine file status from verification result
+        // Extract simplified results: codes with data and format, rotated, scale
+        logResults = this.extractSimplifiedResults(jobResult.results);
+
         if (verificationResult?.status === 'tampered') {
           fileStatus = 'tampered';
           shouldRoute = true;
-          logEntry = createLogEntry({
-            fileName,
-            absolutePath: filePath,
-            batchId: this.currentBatchId,
-            batchIndex: this.state.currentBatchIndex,
-            startTime: fileStartTime,
-            endTime: fileEndTime,
-            durationMs: fileEndTime - fileStartTime,
-            status: 'PARTIAL',
-            results: jobResult.results || {},
-            totalPages: jobResult.totalPages || 0,
-            error: {
-              message: `Tampering detected: ${verificationResult.reason}`,
-              code: 'TAMPERING_DETECTED',
-              timestamp: fileEndTime,
-            },
-            config: {
-              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
-              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
-              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
-            },
-            metadata: {
-              tags: ['tampered', 'routed'],
-            },
-          });
+          logStatus = 'PARTIAL';
           console.log(`[Orchestrator] File routed: ${fileName} → tampered/`);
         } else if (verificationResult?.status === 'scan_passed') {
-          // Scan passed verification
           fileStatus = 'scan_passed';
           shouldRoute = true;
-          logEntry = createLogEntry({
-            fileName,
-            absolutePath: filePath,
-            batchId: this.currentBatchId,
-            batchIndex: this.state.currentBatchIndex,
-            startTime: fileStartTime,
-            endTime: fileEndTime,
-            durationMs: fileEndTime - fileStartTime,
-            status: 'SUCCESS',
-            results: jobResult.results || {},
-            totalPages: jobResult.totalPages || 0,
-            config: {
-              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
-              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
-              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
-            },
-            metadata: {
-              tags: ['scan_passed', 'routed'],
-            },
-          });
+          logStatus = 'SUCCESS';
           console.log(`[Orchestrator] File routed: ${fileName} → scan_passed/`);
         } else {
-          // Verification result missing or unknown status - keep in main directory
           shouldRoute = false;
-          logEntry = createLogEntry({
-            fileName,
-            absolutePath: filePath,
-            batchId: this.currentBatchId,
-            batchIndex: this.state.currentBatchIndex,
-            startTime: fileStartTime,
-            endTime: fileEndTime,
-            durationMs: fileEndTime - fileStartTime,
-            status: 'PARTIAL',
-            results: jobResult.results || {},
-            totalPages: jobResult.totalPages || 0,
-            error: {
-              message: `Verification result missing or unknown status - file kept in main directory`,
-              code: 'VERIFICATION_UNDEFINED',
-              timestamp: fileEndTime,
-            },
-            config: {
-              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
-              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
-              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
-            },
-            metadata: {
-              tags: ['not_routed', 'verification_missing'],
-            },
-          });
+          logStatus = 'PARTIAL';
           console.log(`[Orchestrator] File NOT routed: ${fileName} (verification undefined) - kept in main directory`);
         }
       } else {
-        // Worker failed - keep file in main directory, don't route
-        let error: Error;
-        if (result.status === 'fulfilled' && !result.value.success) {
-          error = result.value.error;
-        } else {
-          error = result.status === 'rejected' ? result.reason : new Error('Unknown error');
-        }
+        // Worker failed
         shouldRoute = false;
-        logEntry = createLogEntry({
-          fileName,
-          absolutePath: filePath,
-          batchId: this.currentBatchId,
-          batchIndex: this.state.currentBatchIndex,
-          startTime: fileStartTime,
-          endTime: fileEndTime,
-          durationMs: fileEndTime - fileStartTime,
-          status: 'FAILED',
-          results: {},
-          totalPages: 0,
-          error: {
-            message: error instanceof Error ? error.message : String(error),
-            timestamp: fileEndTime,
-          },
-          config: {
-            initialScale: this.settings.pdfConfig?.initialScale ?? 3,
-            enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
-            rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
-          },
-          metadata: {
-            tags: ['not_routed', 'worker_failed'],
-          },
-        });
+        logStatus = 'FAILED';
         console.log(`[Orchestrator] File NOT routed: ${fileName} (worker failed) - kept in main directory`);
+      }
+
+      // Create simplified log entry
+      const logEntry = {
+        fileName,
+        status: logStatus,
+        durationMs,
+        results: logResults,
+      };
+
+      // Add entry to logger
+      if (this.logger) {
+        this.logger.addEntry(logEntry as any);
       }
 
       // Submit routing job only for tampered and scan_passed files
@@ -603,15 +559,7 @@ export class BatchOrchestrator {
           console.log(`[Orchestrator] Routing job queued: ${fileName} (${fileStatus})`);
         } catch (routingError) {
           console.error(`[Orchestrator] Failed to route file ${fileName}:`, routingError);
-          // Don't fail batch - log it and continue
-          logEntry.metadata = logEntry.metadata || {};
-          logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'routing_failed'];
         }
-      }
-
-      // Add entry to logger
-      if (this.logger) {
-        this.logger.addEntry(logEntry);
       }
     }
 
@@ -621,11 +569,14 @@ export class BatchOrchestrator {
     ).length;
     const failures = results.length - successes;
 
+    // Increment files processed counter
+    this.filesProcessed += files.length;
+
     const batchDuration = Date.now() - batchStartTime;
     this.stats.totalTimeElapsed += batchDuration;
 
     console.log(
-      `[Orchestrator] Batch ${this.state.currentBatchIndex} complete: ${successes}/${files.length} succeeded (${batchDuration}ms)`
+      `[Orchestrator] Batch complete: ${successes}/${files.length} succeeded (${batchDuration}ms, total processed: ${this.filesProcessed}/${this.totalFilesDiscovered})`
     );
 
     if (failures > 0) {
