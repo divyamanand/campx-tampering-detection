@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDirectoryScan } from '../hooks/useDirectoryScan';
 import { useSingleFileScan } from '../hooks/useSingleFileScan';
+import { settingsService, type AppSettings } from '../services/SettingsService';
 
 interface ScanConfig {
   initialScale: number;
@@ -23,6 +24,34 @@ export const ScannerExample: React.FC = () => {
     enableRotation: true,
     rotationDegrees: 180,
   });
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
+  // Load settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const appSettings = await settingsService.getSettings();
+        setSettings(appSettings);
+        // Update config from global settings
+        setConfig({
+          initialScale: appSettings.initialScale,
+          enableRotation: appSettings.enableRotation,
+          rotationDegrees: appSettings.rotationDegrees,
+        });
+        // Set directory path from global settings if available
+        if (appSettings.directory) {
+          setDirPath(appSettings.directory);
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+
+    loadSettings();
+  }, []);
 
   // Single file scanning hook
   const {
@@ -44,6 +73,41 @@ export const ScannerExample: React.FC = () => {
     scanDirectory,
     reset: resetDirScan,
   } = useDirectoryScan();
+
+  const handleSelectFile = async () => {
+    try {
+      const selected = await window.electronAPI.selectFile();
+      if (selected) {
+        setFilePath(selected);
+      }
+    } catch (error) {
+      alert(`Error selecting file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleSelectDirectory = async () => {
+    try {
+      const selected = await window.electronAPI.selectDirectory();
+      if (selected) {
+        setDirPath(selected);
+        // Save directory to global settings
+        await settingsService.setDirectory(selected);
+      }
+    } catch (error) {
+      alert(`Error selecting directory: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Save config changes to global settings
+  const updateConfigAndSettings = (newConfig: ScanConfig) => {
+    setConfig(newConfig);
+    // Update settings in background
+    settingsService.updateSettings({
+      initialScale: newConfig.initialScale,
+      enableRotation: newConfig.enableRotation,
+      rotationDegrees: newConfig.rotationDegrees,
+    }).catch(error => console.error('Failed to save settings:', error));
+  };
 
   const handleSingleFileScan = async () => {
     if (!filePath.trim()) {
@@ -183,6 +247,12 @@ export const ScannerExample: React.FC = () => {
     <div style={styles.container}>
       <h1 style={{ marginBottom: '2rem', color: '#111827' }}>PDF Scanner</h1>
 
+      {loadingSettings && (
+        <div style={{ ...styles.progress, marginBottom: '2rem' }}>
+          Loading settings...
+        </div>
+      )}
+
       {/* Tabs */}
       <div style={styles.tabs}>
         <button
@@ -216,7 +286,7 @@ export const ScannerExample: React.FC = () => {
               min="1"
               max="5"
               value={config.initialScale}
-              onChange={(e) => setConfig({ ...config, initialScale: parseInt(e.target.value) })}
+              onChange={(e) => updateConfigAndSettings({ ...config, initialScale: parseInt(e.target.value) })}
               style={styles.inputNumber}
             />
           </div>
@@ -225,7 +295,7 @@ export const ScannerExample: React.FC = () => {
               <input
                 type="checkbox"
                 checked={config.enableRotation}
-                onChange={(e) => setConfig({ ...config, enableRotation: e.target.checked })}
+                onChange={(e) => updateConfigAndSettings({ ...config, enableRotation: e.target.checked })}
               />
               Enable Rotation
             </label>
@@ -236,7 +306,7 @@ export const ScannerExample: React.FC = () => {
               <input
                 type="number"
                 value={config.rotationDegrees}
-                onChange={(e) => setConfig({ ...config, rotationDegrees: parseInt(e.target.value) })}
+                onChange={(e) => updateConfigAndSettings({ ...config, rotationDegrees: parseInt(e.target.value) })}
                 style={styles.inputNumber}
               />
             </div>
@@ -249,14 +319,29 @@ export const ScannerExample: React.FC = () => {
         <div style={styles.section}>
           <div style={styles.formGroup}>
             <label style={styles.label}>PDF File Path</label>
-            <input
-              type="text"
-              placeholder="e.g., /path/to/document.pdf"
-              value={filePath}
-              onChange={(e) => setFilePath(e.target.value)}
-              disabled={singleScanning}
-              style={styles.input}
-            />
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+              <input
+                type="text"
+                placeholder="e.g., /path/to/document.pdf"
+                value={filePath}
+                onChange={(e) => setFilePath(e.target.value)}
+                disabled={singleScanning}
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button
+                onClick={handleSelectFile}
+                disabled={singleScanning}
+                style={{
+                  ...styles.button,
+                  padding: '0.75rem 1rem',
+                  marginTop: 0,
+                  ...(singleScanning ? styles.buttonDisabled : {}),
+                }}
+                title="Browse for PDF file"
+              >
+                📁
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '1rem' }}>
@@ -299,14 +384,29 @@ export const ScannerExample: React.FC = () => {
         <div style={styles.section}>
           <div style={styles.formGroup}>
             <label style={styles.label}>Directory Path</label>
-            <input
-              type="text"
-              placeholder="e.g., /path/to/pdf/folder"
-              value={dirPath}
-              onChange={(e) => setDirPath(e.target.value)}
-              disabled={dirScanning}
-              style={styles.input}
-            />
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+              <input
+                type="text"
+                placeholder="e.g., /path/to/pdf/folder"
+                value={dirPath}
+                onChange={(e) => setDirPath(e.target.value)}
+                disabled={dirScanning}
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button
+                onClick={handleSelectDirectory}
+                disabled={dirScanning}
+                style={{
+                  ...styles.button,
+                  padding: '0.75rem 1rem',
+                  marginTop: 0,
+                  ...(dirScanning ? styles.buttonDisabled : {}),
+                }}
+                title="Browse for directory"
+              >
+                📁
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '1rem' }}>

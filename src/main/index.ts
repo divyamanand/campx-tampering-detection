@@ -1,8 +1,9 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
 import { initializeScannerHandlers } from './scanner';
 import { prepareZXingModule } from 'zxing-wasm/reader';
 import { readFileSync } from 'node:fs';
+import { getSettingsService, initializeSettings, type AppSettings } from './utils/SettingsService';
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -30,7 +31,62 @@ prepareZXingModule({
   },
 });
 
+// IPC Handler: Select directory for scanning
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+    title: 'Select Directory to Scan',
+    buttonLabel: 'Select',
+  });
+
+  if (result.canceled) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
+
+// IPC Handler: Select file for scanning
+ipcMain.handle('select-file', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+    title: 'Select PDF File to Scan',
+    buttonLabel: 'Select',
+  });
+
+  if (result.canceled) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
+
+// IPC Handlers: Settings management
+ipcMain.handle('get-settings', async () => {
+  const settingsService = getSettingsService();
+  return settingsService.getSettings();
+});
+
+ipcMain.handle('update-settings', async (_event, settings: Partial<AppSettings>) => {
+  const settingsService = getSettingsService();
+  return settingsService.saveSettings(settings);
+});
+
+ipcMain.handle('update-setting', async (_event, key: keyof AppSettings, value: unknown) => {
+  const settingsService = getSettingsService();
+  return settingsService.updateSetting(key, value as any);
+});
+
+ipcMain.handle('reset-settings', async () => {
+  const settingsService = getSettingsService();
+  return settingsService.resetToDefaults();
+});
+
 app.whenReady().then(async () => {
+  // Initialize settings on app startup
+  await initializeSettings();
+
   initializeScannerHandlers();
   createWindow();
 });

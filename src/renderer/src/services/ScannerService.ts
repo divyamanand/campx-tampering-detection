@@ -36,6 +36,8 @@ class ScannerService {
   /**
    * Scan a single PDF file
    *
+   * Results will be automatically logged to the directory specified in global settings
+   *
    * @param filePath - Full path to the PDF file
    * @param config - PDFManager configuration options
    * @returns Scan result with detailed page information
@@ -51,6 +53,7 @@ class ScannerService {
    * Scan multiple PDF files in batch
    *
    * Sends 'scan-progress' events to track real-time progress
+   * Results will be automatically logged to the directory specified in global settings
    *
    * @param filePaths - Array of full paths to PDF files
    * @param config - PDFManager configuration options
@@ -67,6 +70,7 @@ class ScannerService {
    * Scan all PDF files in a directory
    *
    * Sends 'scan-progress' events to track real-time progress
+   * Results will be automatically logged to the directory specified in global settings
    *
    * @param dirPath - Full path to directory containing PDF files
    * @param config - PDFManager configuration options

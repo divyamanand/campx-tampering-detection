@@ -6,4 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(channel, (_event, ...args) => listener(...args));
   },
   invoke: (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args),
+
+  // File and directory selection dialogs
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  selectFile: () => ipcRenderer.invoke('select-file'),
 });

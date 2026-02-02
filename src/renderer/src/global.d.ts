@@ -6,6 +6,8 @@ declare global {
       send: (channel: string, ...args: unknown[]) => void;
       on: (channel: string, listener: (...args: unknown[]) => void) => void;
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+      selectDirectory: () => Promise<string | null>;
+      selectFile: () => Promise<string | null>;
     };
   }
 }
