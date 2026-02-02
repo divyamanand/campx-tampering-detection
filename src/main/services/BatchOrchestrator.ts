@@ -26,7 +26,7 @@ import type { WorkerJob } from '../workers/Job';
 import { randomUUID } from 'crypto';
 import { getBatchLogger } from './BatchLogger';
 import { createLogEntry } from '../types/LogEntry';
-import { getFileRoutingService } from './FileRoutingService';
+import { getRoutingQueue } from './RoutingQueue';
 import type { FileStatus } from './FileRoutingService';
 
 /**
@@ -382,10 +382,16 @@ export class BatchOrchestrator {
 
   /**
    * Process a single batch (submit to worker pool)
+   *
+   * Flow:
+   * 1. Read files and submit scanning jobs
+   * 2. Wait for results (with verification status)
+   * 3. Enqueue routing jobs (non-blocking)
+   * 4. Log results
    */
   private async processBatch(files: string[]): Promise<void> {
     const pool = getWorkerPool();
-    const router = getFileRoutingService();
+    const routingQueue = getRoutingQueue();
 
     console.log(
       `[Orchestrator] Processing batch ${this.state.currentBatchIndex} (${files.length} files)`
@@ -443,7 +449,7 @@ export class BatchOrchestrator {
     // Wait for all jobs in batch (allSettled = one failure doesn't kill batch)
     const results = await Promise.allSettled(jobPromises);
 
-    // Create log entries and route files (STEP 4.4)
+    // Process results: log and enqueue routing
     for (let i = 0; i < results.length; i++) {
       const filePath = files[i];
       const fileName = path.basename(filePath);
@@ -459,7 +465,7 @@ export class BatchOrchestrator {
         const jobResult = result.value.result;
         const verificationResult = jobResult.verificationResult;
 
-        // Determine file routing based on verification result
+        // Determine file status from verification result
         if (verificationResult?.status === 'tampered') {
           fileStatus = 'tampered';
           logEntry = createLogEntry({
@@ -570,17 +576,19 @@ export class BatchOrchestrator {
         });
       }
 
-      // Route file to appropriate directory
+      // Enqueue routing job (non-blocking)
       try {
-        const newFilePath = await router.move(filePath, fileStatus);
-        console.log(`[Orchestrator] File routed: ${fileName} → ${router.getStatusDisplayName(fileStatus)}`);
-        // Update log entry with new path
-        logEntry.absolutePath = newFilePath;
-      } catch (moveError) {
-        console.error(`[Orchestrator] Failed to move file ${filePath}:`, moveError);
-        // Don't fail the batch - file stays in place but is logged
+        await routingQueue.enqueue({
+          fileName,
+          sourcePath: filePath,
+          baseDir: this.settings.directory,
+          finalStatus: fileStatus,
+        });
+      } catch (queueError) {
+        console.error(`[Orchestrator] Failed to enqueue routing for ${fileName}:`, queueError);
+        // Don't fail batch - log it and continue
         logEntry.metadata = logEntry.metadata || {};
-        logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'move_failed'];
+        logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'routing_enqueue_failed'];
       }
 
       // Add entry to logger

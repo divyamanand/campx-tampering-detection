@@ -1,11 +1,14 @@
 /**
- * File Routing Service - File Movement Based on Verification Status
+ * File Routing Service - Low-level File System Operations
  *
- * Routes files to appropriate directories based on verification/scanning results
- * Keeps verification logic pure - no file operations in VerificationService
+ * ONLY does file system operations:
+ * - Create directories
+ * - Move files
  *
- * File routing flow:
- * Worker decides status → router moves file → logger records it → IPC notifies renderer
+ * NO business logic, NO status mapping, NO verification
+ * Business logic lives in RoutingQueue and pdfRouting.worker
+ *
+ * Used by: pdfRouting.worker.ts
  */
 
 import { rename, mkdir } from 'fs/promises';
@@ -13,87 +16,65 @@ import path from 'path';
 
 export type FileStatus = 'tampered' | 'retry' | 'scan_passed' | 'upload_passed' | 'upload_failed';
 
-export interface FileMovementOptions {
-  createDirectories?: boolean;
-}
-
+/**
+ * File Routing Service - Pure FS operations
+ */
 export class FileRoutingService {
   /**
-   * Get destination directory for a file based on status
-   *
-   * Directory structure:
-   * input/
-   * ├── files/
-   * └── tampered/
-   * └── retry/
-   * └── scan_passed/
-   * └── upload_passed/
-   * └── upload_failed/
+   * Get destination folder name for a status
    */
-  private getDestinationDirectory(sourceDir: string, status: FileStatus): string {
-    const statusDirs: Record<FileStatus, string> = {
+  private getFolderNameForStatus(status: FileStatus): string {
+    const folderNames: Record<FileStatus, string> = {
       tampered: 'tampered',
       retry: 'retry',
       scan_passed: 'scan_passed',
       upload_passed: 'upload_passed',
       upload_failed: 'upload_failed',
     };
-
-    return path.join(sourceDir, statusDirs[status]);
+    return folderNames[status];
   }
 
   /**
-   * Move a file to its destination directory based on status
-   *
-   * @param filePath - Absolute path to the file
-   * @param status - Verification/processing status
-   * @param options - Movement options
-   * @returns New file path after movement
+   * Get destination path for a file
+   * baseDir/status/filename
    */
-  async move(
-    filePath: string,
-    status: FileStatus,
-    options: FileMovementOptions = { createDirectories: true }
-  ): Promise<string> {
+  getDestinationPath(baseDir: string, fileName: string, status: FileStatus): string {
+    const folderName = this.getFolderNameForStatus(status);
+    return path.join(baseDir, folderName, fileName);
+  }
+
+  /**
+   * Ensure a folder exists (create if needed)
+   * Called before moving files into it
+   *
+   * @param folderPath - Absolute path to folder
+   */
+  async ensureFolder(folderPath: string): Promise<void> {
     try {
-      const sourceDir = path.dirname(filePath);
-      const fileName = path.basename(filePath);
-      const destinationDir = this.getDestinationDirectory(sourceDir, status);
-      const destinationPath = path.join(destinationDir, fileName);
-
-      // Create destination directory if needed
-      if (options.createDirectories) {
-        try {
-          await mkdir(destinationDir, { recursive: true });
-        } catch (error) {
-          console.warn(`[FileRouter] Failed to create directory ${destinationDir}:`, error);
-          throw error;
-        }
-      }
-
-      // Move the file
-      try {
-        await rename(filePath, destinationPath);
-        console.log(`[FileRouter] File moved: ${fileName} → ${status}/`);
-      } catch (error) {
-        console.error(`[FileRouter] Failed to move file ${filePath}:`, error);
-        throw error;
-      }
-
-      return destinationPath;
+      await mkdir(folderPath, { recursive: true });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[FileRouter] File movement failed: ${filePath} (${status})`, errorMessage);
-      throw new FileMovementError(
-        `Failed to move file to ${status}/ directory: ${errorMessage}`,
-        filePath,
-        status
-      );
+      console.error(`[FileRouter] Failed to create folder ${folderPath}:`, error);
+      throw error;
     }
   }
 
   /**
-   * Get display name for status (for UI/logs)
+   * Move file atomically from source to destination
+   *
+   * @param sourcePath - Absolute path to source file
+   * @param destinationPath - Absolute path to destination file
+   */
+  async moveFile(sourcePath: string, destinationPath: string): Promise<void> {
+    try {
+      await rename(sourcePath, destinationPath);
+    } catch (error) {
+      console.error(`[FileRouter] Failed to move file from ${sourcePath} to ${destinationPath}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get display name for status (for UI/logs only)
    */
   getStatusDisplayName(status: FileStatus): string {
     const displayNames: Record<FileStatus, string> = {
@@ -103,29 +84,7 @@ export class FileRoutingService {
       upload_passed: 'Upload Passed',
       upload_failed: 'Upload Failed',
     };
-
     return displayNames[status];
-  }
-
-  /**
-   * Check if status indicates success
-   */
-  isSuccess(status: FileStatus): boolean {
-    return status === 'scan_passed' || status === 'upload_passed';
-  }
-
-  /**
-   * Check if status indicates failure
-   */
-  isFailure(status: FileStatus): boolean {
-    return status === 'tampered' || status === 'upload_failed';
-  }
-
-  /**
-   * Check if status indicates retry needed
-   */
-  isRetry(status: FileStatus): boolean {
-    return status === 'retry';
   }
 }
 
@@ -135,8 +94,8 @@ export class FileRoutingService {
 export class FileMovementError extends Error {
   constructor(
     message: string,
-    public filePath: string,
-    public status: FileStatus
+    public sourcePath: string,
+    public destinationPath: string
   ) {
     super(message);
     this.name = 'FileMovementError';
