@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useBatchScan } from '../hooks/useBatchScan';
 import { useTimer } from '../hooks/useTimer';
 import { settingsService } from '../services/SettingsService';
-import type { BatchSettings } from '../../../main/types/BatchSettings';
+import type { BatchSettings } from '../../../main/types/batchSettings.types';
 
 interface ScanConfig {
   initialScale: number;

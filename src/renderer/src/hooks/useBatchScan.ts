@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { scannerService } from '../services/ScannerService';
-import type { BatchState, BatchProgressEvent } from '../../../main/types/BatchSettings';
-import type { BatchSettings } from '../../../main/types/BatchSettings';
+import type { BatchState, BatchProgressEvent } from '../../../main/types/batchSettings.types';
+import type { BatchSettings } from '../../../main/types/batchSettings.types';
 
 interface UseBatchScanReturn {
   scanning: boolean;

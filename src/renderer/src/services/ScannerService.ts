@@ -9,7 +9,7 @@
  * - Crash-safe logging
  */
 
-import type { BatchSettings, BatchState, BatchResult } from '../../../main/types/BatchSettings';
+import type { BatchSettings, BatchState, BatchResult } from '../../../main/types/batchSettings.types';
 
 /**
  * Batch processing response

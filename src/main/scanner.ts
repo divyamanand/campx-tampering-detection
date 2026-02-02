@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { getOrchestrator } from './services/orchestration/batch-orchestrator.service';
-import type { BatchSettings } from './types/BatchSettings';
+import type { BatchSettings } from './types/batchSettings.types';
 
 /**
  * Initialize Scanner IPC Handlers

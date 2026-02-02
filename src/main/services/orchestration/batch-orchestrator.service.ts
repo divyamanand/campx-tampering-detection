@@ -19,13 +19,13 @@
 
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
-import type { BatchSettings, BatchState, BatchProgressEvent, BatchResult } from '../../types/BatchSettings';
-import { DEFAULT_BATCH_SETTINGS } from '../../types/BatchSettings';
+import type { BatchSettings, BatchState, BatchProgressEvent, BatchResult } from '../../types/batchSettings.types';
+import { DEFAULT_BATCH_SETTINGS } from '../../types/batchSettings.types';
 import { getWorkerPool } from '../../workers/pdfScan/worker-pool.service';
 import type { WorkerJob } from '../../workers/pdfScan/worker.types';
 import { randomUUID } from 'crypto';
 import { getBatchLogger } from '../logging/batch-logger.service';
-import { createLogEntry } from '../../types/LogEntry';
+import { createLogEntry } from '../../types/logEntry.types';
 import { getRoutingWorkerPool } from '../../workers/routing/routing-worker-pool.service';
 import type { FileStatus } from '../file-operations/file-routing.service';
 
