@@ -4,9 +4,6 @@
  * Represents a single PDF scanning job to be processed by a worker
  * Encapsulates all necessary data + promise resolution
  */
-
-import type { PDFManagerConfig } from '../services/PDFManager';
-
 /**
  * Represents a single job to be processed by a worker
  * Each job has a unique ID for message routing

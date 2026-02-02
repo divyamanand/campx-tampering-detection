@@ -13,7 +13,42 @@
 
 import { Worker } from 'worker_threads';
 import path from 'path';
-import type { RoutingJob } from '../services/RoutingQueue';
+import type { FileStatus } from '../services/FileRoutingService';
+
+/**
+ * Routing job for file movement
+ */
+export interface RoutingJob {
+  /**
+   * Unique job identifier
+   */
+  id: string;
+
+  /**
+   * Original filename
+   */
+  fileName: string;
+
+  /**
+   * Full path to source file
+   */
+  sourcePath: string;
+
+  /**
+   * Base directory (from user settings)
+   */
+  baseDir: string;
+
+  /**
+   * Final verification status
+   */
+  finalStatus: FileStatus;
+
+  /**
+   * Timestamp when job was created
+   */
+  createdAt: number;
+}
 
 interface RoutingJobWithResolver extends RoutingJob {
   resolve: (value: any) => void;
