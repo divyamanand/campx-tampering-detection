@@ -1,9 +1,14 @@
-import { ipcMain } from 'electron';
+import { ipcMain, BrowserWindow } from 'electron';
 import { readFile, readdir } from 'fs/promises';
 import path from 'path';
-import { PDFManager, type PDFManagerConfig } from './services/PDFManager';
+import { randomUUID } from 'crypto';
+import type { PDFManagerConfig } from './services/PDFManager';
 import { LogService } from './services/LogService';
 import { getSettingsService } from './utils/SettingsService';
+import { getWorkerPool } from './workers/WorkerPool';
+import type { WorkerJob } from './workers/Job';
+import { getOrchestrator } from './services/BatchOrchestrator';
+import type { BatchSettings } from './types/BatchSettings';
 
 export interface ScanProgress {
   fileName: string;
@@ -11,67 +16,103 @@ export interface ScanProgress {
   totalPages: number;
 }
 
-export function initializeScannerHandlers(): void {
-
+/**
+ * Initialize Scanner IPC Handlers
+ *
+ * These handlers delegate PDF processing to the worker pool,
+ * which automatically:
+ * - Queues jobs when all workers are busy
+ * - Assigns to idle workers
+ * - Maintains throughput with optimal parallelism
+ *
+ * The main process remains non-blocking and responsive for UI.
+ */
+export function initializeScannerHandlers(mainWindow?: BrowserWindow): void {
+  /**
+   * Single File Scan Handler
+   * Submits job to worker pool
+   */
   ipcMain.handle(
     'scan-pdf-file',
     async (_event, filePath: string, config: PDFManagerConfig = {}) => {
+      const jobId = randomUUID();
+      const fileName = path.basename(filePath);
+
       try {
         const settingsService = getSettingsService();
         const settings = settingsService.getSettings();
 
-        // Use global settings for config if not explicitly provided
-        const mergedConfig: PDFManagerConfig = {
+        // Merge global settings with runtime config
+        const mergedConfig = {
           initialScale: config.initialScale ?? settings.initialScale,
           enableRotation: config.enableRotation ?? settings.enableRotation,
           rotationDegrees: config.rotationDegrees ?? settings.rotationDegrees,
         };
 
-        const pdfManager = new PDFManager(mergedConfig);
-        const buffer = await readFile(filePath);
+        // Read file into buffer
+        const fileBuffer = await readFile(filePath);
 
-        const res = await pdfManager.processBuffer(
-          buffer,
-          path.basename(filePath)
-        );
-        console.log(res);
+        // Get worker pool (auto-initializes if needed)
+        const pool = getWorkerPool();
 
-        // Log results using global settings directory
+        // Create job for the pool
+        const job: WorkerJob = {
+          id: jobId,
+          buffer: fileBuffer.buffer as ArrayBuffer,
+          fileName,
+          config: mergedConfig,
+          resolve: () => {},
+          reject: () => {},
+          onProgress: (progressData) => {
+            // Forward progress events to renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('scan-progress', progressData);
+            }
+          },
+        };
+
+        // Submit job to pool (auto-queues if workers are busy)
+        const result = await pool.submit(job);
+
+        console.log(`✓ Scan complete: ${fileName}`);
+
+        // Log results if directory configured
         if (settings.directory) {
           try {
             const logService = new LogService(settings.directory);
-            await logService.logFileProcess(res);
+            await logService.logFileProcess(result);
           } catch (logError) {
-            console.warn('Failed to log file process:', logError);
-            // Don't fail the scan if logging fails
+            console.warn('Failed to log results:', logError);
+            // Don't fail scan if logging fails
           }
         }
 
-        return res;
+        return result;
       } catch (error) {
-        // console.error(error)
+        console.error(`✗ Scan failed: ${fileName}`, error);
         return {
-          fileName: path.basename(filePath),
+          fileName,
           totalPages: 0,
           results: {},
           success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Unknown error during scanning',
+          error: error instanceof Error ? error.message : 'Unknown error',
         };
       }
     }
   );
 
+  /**
+   * Batch File Scan Handler
+   * Submits multiple jobs to worker pool (auto-queues as needed)
+   */
   ipcMain.handle(
     'scan-pdf-batch',
     async (_event, filePaths: string[], config: PDFManagerConfig = {}) => {
       const settingsService = getSettingsService();
       const settings = settingsService.getSettings();
 
-      // Use global settings for config if not explicitly provided
-      const mergedConfig: PDFManagerConfig = {
+      // Merge global settings with runtime config
+      const mergedConfig = {
         initialScale: config.initialScale ?? settings.initialScale,
         enableRotation: config.enableRotation ?? settings.enableRotation,
         rotationDegrees: config.rotationDegrees ?? settings.rotationDegrees,
@@ -80,19 +121,31 @@ export function initializeScannerHandlers(): void {
       const results: Record<string, unknown> = {};
       const failedFiles: string[] = [];
       const logResults: Array<any> = [];
+      const pool = getWorkerPool();
 
-      for (const filePath of filePaths) {
+      // Submit all jobs to pool (they'll queue automatically)
+      const scanPromises = filePaths.map(async (filePath) => {
         const fileName = path.basename(filePath);
+        const jobId = randomUUID();
 
         try {
-          const pdfManager = new PDFManager(mergedConfig);
-          const buffer = await readFile(filePath);
+          const fileBuffer = await readFile(filePath);
 
-          const result = await pdfManager.processBuffer(
-            buffer,
+          const job: WorkerJob = {
+            id: jobId,
+            buffer: fileBuffer.buffer as ArrayBuffer,
             fileName,
-          );
+            config: mergedConfig,
+            resolve: () => {},
+            reject: () => {},
+            onProgress: (progressData) => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('scan-progress', progressData);
+              }
+            },
+          };
 
+          const result = await pool.submit(job);
           results[fileName] = result;
           logResults.push(result);
         } catch (error) {
@@ -102,24 +155,23 @@ export function initializeScannerHandlers(): void {
             totalPages: 0,
             results: {},
             success: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Unknown error during scanning',
+            error: error instanceof Error ? error.message : 'Unknown error',
           };
           results[fileName] = errorResult;
           logResults.push(errorResult);
         }
-      }
+      });
 
-      // Log all results using global settings directory
+      // Wait for all jobs to complete
+      await Promise.all(scanPromises);
+
+      // Log all results if directory configured
       if (settings.directory && logResults.length > 0) {
         try {
           const logService = new LogService(settings.directory);
           await logService.logMultipleFiles(logResults);
         } catch (logError) {
           console.warn('Failed to log batch results:', logError);
-          // Don't fail the scan if logging fails
         }
       }
 
@@ -132,84 +184,222 @@ export function initializeScannerHandlers(): void {
     }
   );
 
+  /**
+   * Directory Scan Handler
+   * Submits all PDFs in directory to worker pool (auto-queues as needed)
+   */
   ipcMain.handle(
     'scan-directory',
     async (_event, dirPath: string, config: PDFManagerConfig = {}) => {
       const settingsService = getSettingsService();
       const settings = settingsService.getSettings();
 
-      console.log("Directory Scanning Started")
+      console.log('📁 Directory scan started:', dirPath);
 
-      // Use global settings for config if not explicitly provided
-      const mergedConfig: PDFManagerConfig = {
+      // Merge global settings with runtime config
+      const mergedConfig = {
         initialScale: config.initialScale ?? settings.initialScale,
         enableRotation: config.enableRotation ?? settings.enableRotation,
         rotationDegrees: config.rotationDegrees ?? settings.rotationDegrees,
       };
 
-      const entries = await readdir(dirPath, { withFileTypes: true });
+      try {
+        // Discover PDF files
+        const entries = await readdir(dirPath, { withFileTypes: true });
+        const pdfFiles = entries
+          .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.pdf'))
+          .map((e) => e.name);
 
-      const pdfFiles = entries
-        .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.pdf'))
-        .map((e) => e.name);
+        console.log(`Found ${pdfFiles.length} PDF files`);
 
-      console.log("All the files in directory", pdfFiles)
+        const results: Record<string, unknown> = {};
+        const failedFiles: string[] = [];
+        const logResults: Array<any> = [];
+        const pool = getWorkerPool();
 
-      const results: Record<string, unknown> = {};
-      const failedFiles: string[] = [];
-      const logResults: Array<any> = [];
-      let count = 0
+        // Submit all PDFs to pool (they'll queue automatically)
+        const scanPromises = pdfFiles.map(async (fileName) => {
+          const filePath = path.join(dirPath, fileName);
+          const jobId = randomUUID();
 
-      for (const fileName of pdfFiles) {
-        const filePath = path.join(dirPath, fileName);
+          try {
+            const fileBuffer = await readFile(filePath);
 
-        try {
-          const pdfManager = new PDFManager(mergedConfig);
-          const buffer = await readFile(filePath);
+            const job: WorkerJob = {
+              id: jobId,
+              buffer: fileBuffer.buffer as ArrayBuffer,
+              fileName,
+              config: mergedConfig,
+              resolve: () => {},
+              reject: () => {},
+              onProgress: (progressData) => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('scan-progress', progressData);
+                }
+              },
+            };
 
-          const result = await pdfManager.processBuffer(
-            buffer,
-            fileName
-          );
-          count += 1
-          console.log("Result for file", fileName, count)
+            const result = await pool.submit(job);
+            results[fileName] = result;
+            logResults.push(result);
+          } catch (error) {
+            failedFiles.push(fileName);
+            const errorResult = {
+              fileName,
+              totalPages: 0,
+              results: {},
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            };
+            results[fileName] = errorResult;
+            logResults.push(errorResult);
+          }
+        });
 
-          results[fileName] = result;
-          logResults.push(result);
-        } catch (error) {
-          failedFiles.push(fileName);
-          const errorResult = {
-            fileName,
-            totalPages: 0,
-            results: {},
-            success: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Unknown error during scanning',
-          };
-          results[fileName] = errorResult;
-          logResults.push(errorResult);
+        // Wait for all jobs to complete
+        await Promise.all(scanPromises);
+
+        // Log all results if directory configured
+        if (settings.directory && logResults.length > 0) {
+          try {
+            const logService = new LogService(settings.directory);
+            await logService.logMultipleFiles(logResults);
+          } catch (logError) {
+            console.warn('Failed to log results:', logError);
+          }
         }
-      }
 
-      // Log all results using global settings directory
-      if (settings.directory && logResults.length > 0) {
-        try {
-          const logService = new LogService(settings.directory);
-          await logService.logMultipleFiles(logResults);
-        } catch (logError) {
-          console.warn('Failed to log directory scan results:', logError);
-          // Don't fail the scan if logging fails
-        }
-      }
+        console.log(
+          `✓ Directory scan complete: ${pdfFiles.length - failedFiles.length}/${pdfFiles.length} succeeded`
+        );
 
-      return {
-        scannedCount: pdfFiles.length - failedFiles.length,
-        failedCount: failedFiles.length,
-        failedFiles,
-        results,
-      };
+        return {
+          scannedCount: pdfFiles.length - failedFiles.length,
+          failedCount: failedFiles.length,
+          failedFiles,
+          results,
+        };
+      } catch (error) {
+        console.error('✗ Directory scan failed:', error);
+        throw error;
+      }
     }
   );
+
+  /**
+   * Batch Processing Control Handlers
+   * These handlers manage persistent directory scanning with the BatchOrchestrator
+   */
+
+  /**
+   * Start batch processing
+   * Begins persistent polling and batch processing of a directory
+   */
+  ipcMain.handle('batch-start', async (_event, batchSettings: BatchSettings) => {
+    try {
+      const orchestrator = getOrchestrator();
+
+      // Register progress listener to forward to renderer
+      orchestrator.onProgress((progressEvent) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('batch-progress', progressEvent);
+        }
+      });
+
+      // Start batch processing
+      await orchestrator.start(batchSettings);
+
+      console.log(`✓ Batch processing started: ${batchSettings.directory}`);
+
+      return { success: true, message: 'Batch processing started' };
+    } catch (error) {
+      console.error('Failed to start batch processing:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  /**
+   * Pause batch processing
+   * Pauses batch processing but keeps directory polling active
+   */
+  ipcMain.handle('batch-pause', async () => {
+    try {
+      const orchestrator = getOrchestrator();
+      orchestrator.pause();
+
+      console.log('✓ Batch processing paused');
+
+      return { success: true, message: 'Batch processing paused' };
+    } catch (error) {
+      console.error('Failed to pause batch processing:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  /**
+   * Resume batch processing
+   * Resumes paused batch processing
+   */
+  ipcMain.handle('batch-resume', async () => {
+    try {
+      const orchestrator = getOrchestrator();
+      orchestrator.resume();
+
+      console.log('✓ Batch processing resumed');
+
+      return { success: true, message: 'Batch processing resumed' };
+    } catch (error) {
+      console.error('Failed to resume batch processing:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  /**
+   * Stop batch processing
+   * Stops polling and processing, returns final results
+   */
+  ipcMain.handle('batch-stop', async () => {
+    try {
+      const orchestrator = getOrchestrator();
+      const result = await orchestrator.stop();
+
+      console.log('✓ Batch processing stopped');
+
+      return { success: true, result };
+    } catch (error) {
+      console.error('Failed to stop batch processing:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  /**
+   * Get batch state
+   * Returns current state of batch processing
+   */
+  ipcMain.handle('batch-get-state', async () => {
+    try {
+      const orchestrator = getOrchestrator();
+      const state = orchestrator.getState();
+
+      return { success: true, state };
+    } catch (error) {
+      console.error('Failed to get batch state:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
 }
