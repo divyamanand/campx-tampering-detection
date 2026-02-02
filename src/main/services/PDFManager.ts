@@ -66,7 +66,6 @@ export class PDFManager {
           bestResult = {result, rotated}
         }
       }
-
       return {
         success: bestResult.result.success,
         result: bestResult.result,

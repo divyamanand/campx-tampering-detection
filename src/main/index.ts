@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { initializeScannerHandlers } from './scanner';
+import { prepareZXingModule } from 'zxing-wasm/reader';
+import { readFileSync } from 'node:fs';
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -20,6 +22,13 @@ function createWindow(): void {
   win.loadFile(path.join(__dirname, '../../renderer/index.html'));
   }
 }
+
+prepareZXingModule({
+  overrides: {
+    wasmBinary: readFileSync("E:/Dev/campx/campx-tampering-detection/assets/wasm/zxing_reader.wasm")
+      .buffer as ArrayBuffer,
+  },
+});
 
 app.whenReady().then(async () => {
   initializeScannerHandlers();
