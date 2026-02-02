@@ -4,6 +4,7 @@ import { initializeScannerHandlers } from './scanner';
 import { prepareZXingModule } from 'zxing-wasm/reader';
 import { readFileSync } from 'node:fs';
 import { getSettingsService, initializeSettings, type AppSettings } from './utils/SettingsService';
+import { initializeRoutingWorkerPool } from './workers/RoutingWorkerPool';
 
 // Main window reference for sending events from worker threads
 let mainWindow: BrowserWindow | undefined;
@@ -150,6 +151,9 @@ ipcMain.handle('reset-settings', async () => {
 app.whenReady().then(async () => {
   // Initialize settings on app startup
   await initializeSettings();
+
+  // Initialize routing worker pool for file routing
+  initializeRoutingWorkerPool();
 
   // Create window first so we can pass it to scanner handlers
   createWindow();
