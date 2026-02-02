@@ -21,7 +21,6 @@ import type { PageProcessResult, PDFManagerConfig } from '../pdf/pdf-manager.ser
 
 export type VerificationResult =
   | { status: 'scan_passed' }
-  | { status: 'retry'; reason: string }
   | { status: 'tampered'; reason: string };
 
 export interface VerificationContext {
@@ -158,7 +157,7 @@ export class VerificationService {
 
     if (missingDetails.length > 0) {
       return {
-        status: 'retry',
+        status: 'tampered',
         reason: `Missing barcodes: ${missingDetails.join('; ')}`,
       };
     }
@@ -264,7 +263,8 @@ export class VerificationService {
 
     // Step 4: Missing QRs check (final decision, no early exit)
     const missingQRsResult = this.verifyMissingQRs(context);
-    if (missingQRsResult?.status === 'retry') {
+    if (missingQRsResult) {
+      // If missing QRs detected (marked as tampered), return early
       return missingQRsResult;
     }
 

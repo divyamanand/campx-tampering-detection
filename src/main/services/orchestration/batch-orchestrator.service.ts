@@ -377,7 +377,9 @@ export class BatchOrchestrator {
    */
   private createBatch(): string[] {
     const batchSize = this.settings.batchSize;
-    return this.queue.splice(0, batchSize);
+    const q =  this.queue.splice(0, batchSize);
+    console.log("QUEUE AFTER SPLICE", this.queue.length)
+    return q
   }
 
   /**
@@ -458,7 +460,8 @@ export class BatchOrchestrator {
       const fileEndTime = Date.now();
 
       let logEntry;
-      let fileStatus: FileStatus = 'retry';
+      let shouldRoute = false;
+      let fileStatus: FileStatus | null = null;
 
       if (result.status === 'fulfilled' && result.value.success) {
         // Worker succeeded - safe to access result.value.result
@@ -468,6 +471,7 @@ export class BatchOrchestrator {
         // Determine file status from verification result
         if (verificationResult?.status === 'tampered') {
           fileStatus = 'tampered';
+          shouldRoute = true;
           logEntry = createLogEntry({
             fileName,
             absolutePath: filePath,
@@ -490,39 +494,14 @@ export class BatchOrchestrator {
               rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
             },
             metadata: {
-              tags: ['tampered'],
+              tags: ['tampered', 'routed'],
             },
           });
-        } else if (verificationResult?.status === 'retry') {
-          fileStatus = 'retry';
-          logEntry = createLogEntry({
-            fileName,
-            absolutePath: filePath,
-            batchId: this.currentBatchId,
-            batchIndex: this.state.currentBatchIndex,
-            startTime: fileStartTime,
-            endTime: fileEndTime,
-            durationMs: fileEndTime - fileStartTime,
-            status: 'PARTIAL',
-            results: jobResult.results || {},
-            totalPages: jobResult.totalPages || 0,
-            error: {
-              message: `Verification retry needed: ${verificationResult.reason}`,
-              code: 'RETRY_NEEDED',
-              timestamp: fileEndTime,
-            },
-            config: {
-              initialScale: this.settings.pdfConfig?.initialScale ?? 3,
-              enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
-              rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
-            },
-            metadata: {
-              tags: ['retry'],
-            },
-          });
+          console.log(`[Orchestrator] File routed: ${fileName} → tampered/`);
         } else if (verificationResult?.status === 'scan_passed') {
           // Scan passed verification
           fileStatus = 'scan_passed';
+          shouldRoute = true;
           logEntry = createLogEntry({
             fileName,
             absolutePath: filePath,
@@ -540,12 +519,13 @@ export class BatchOrchestrator {
               rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
             },
             metadata: {
-              tags: ['scan_passed'],
+              tags: ['scan_passed', 'routed'],
             },
           });
+          console.log(`[Orchestrator] File routed: ${fileName} → scan_passed/`);
         } else {
-          // Verification result missing or unknown status - default to retry
-          fileStatus = 'retry';
+          // Verification result missing or unknown status - keep in main directory
+          shouldRoute = false;
           logEntry = createLogEntry({
             fileName,
             absolutePath: filePath,
@@ -558,7 +538,7 @@ export class BatchOrchestrator {
             results: jobResult.results || {},
             totalPages: jobResult.totalPages || 0,
             error: {
-              message: `Verification result missing or unknown status`,
+              message: `Verification result missing or unknown status - file kept in main directory`,
               code: 'VERIFICATION_UNDEFINED',
               timestamp: fileEndTime,
             },
@@ -568,19 +548,20 @@ export class BatchOrchestrator {
               rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
             },
             metadata: {
-              tags: ['retry', 'verification_missing'],
+              tags: ['not_routed', 'verification_missing'],
             },
           });
+          console.log(`[Orchestrator] File NOT routed: ${fileName} (verification undefined) - kept in main directory`);
         }
       } else {
-        // Worker failed - safe to access error property
+        // Worker failed - keep file in main directory, don't route
         let error: Error;
         if (result.status === 'fulfilled' && !result.value.success) {
           error = result.value.error;
         } else {
           error = result.status === 'rejected' ? result.reason : new Error('Unknown error');
         }
-        fileStatus = 'upload_failed';
+        shouldRoute = false;
         logEntry = createLogEntry({
           fileName,
           absolutePath: filePath,
@@ -601,24 +582,31 @@ export class BatchOrchestrator {
             enableRotation: this.settings.pdfConfig?.enableRotation ?? true,
             rotationDegrees: this.settings.pdfConfig?.rotationDegrees ?? 180,
           },
+          metadata: {
+            tags: ['not_routed', 'worker_failed'],
+          },
         });
+        console.log(`[Orchestrator] File NOT routed: ${fileName} (worker failed) - kept in main directory`);
       }
 
-      // Submit routing job to worker pool
-      try {
-        await routingPool.submit({
-          id: randomUUID(),
-          fileName,
-          sourcePath: filePath,
-          baseDir: this.settings.directory,
-          finalStatus: fileStatus,
-          createdAt: Date.now(),
-        });
-      } catch (routingError) {
-        console.error(`[Orchestrator] Failed to route file ${fileName}:`, routingError);
-        // Don't fail batch - log it and continue
-        logEntry.metadata = logEntry.metadata || {};
-        logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'routing_failed'];
+      // Submit routing job only for tampered and scan_passed files
+      if (shouldRoute && fileStatus) {
+        try {
+          await routingPool.submit({
+            id: randomUUID(),
+            fileName,
+            sourcePath: filePath,
+            baseDir: this.settings.directory,
+            finalStatus: fileStatus,
+            createdAt: Date.now(),
+          });
+          console.log(`[Orchestrator] Routing job queued: ${fileName} (${fileStatus})`);
+        } catch (routingError) {
+          console.error(`[Orchestrator] Failed to route file ${fileName}:`, routingError);
+          // Don't fail batch - log it and continue
+          logEntry.metadata = logEntry.metadata || {};
+          logEntry.metadata.tags = [...(logEntry.metadata.tags || []), 'routing_failed'];
+        }
       }
 
       // Add entry to logger
