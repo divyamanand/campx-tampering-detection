@@ -59,6 +59,12 @@ export interface LogEntry {
   totalPages: number;
 
   /**
+   * Number of times this file has been retried
+   * Default: 0 (first attempt)
+   */
+  retryCount: number;
+
+  /**
    * Pages that were successfully processed
    * (only if status !== SUCCESS or PARTIAL)
    */
@@ -228,6 +234,7 @@ export function createLogEntry(overrides?: Partial<LogEntry>): LogEntry {
     status: 'FAILED',
     results: {},
     totalPages: 0,
+    retryCount: 0,
     config: {
       initialScale: 3,
       enableRotation: true,

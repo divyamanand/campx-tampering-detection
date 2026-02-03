@@ -22,7 +22,7 @@ import os from 'os';
  * - 16 CPUs → 4 workers (capped)
  */
 // export const WORKER_POOL_SIZE = Math.max(1, Math.min(8, os.cpus().length - 1));
-export const WORKER_POOL_SIZE = Math.max(1, Math.min(8, os.cpus().length - 1));
+export const WORKER_POOL_SIZE = Math.max(1, Math.min(4, os.cpus().length - 1));
 
 /**
  * Worker pool configuration object

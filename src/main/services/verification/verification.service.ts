@@ -94,13 +94,14 @@ export class VerificationService {
     for (const code of codes) {
       const code128Value = this.extractCode128Value(code.format, code.data);
       const qrValue = this.extractQRValue(code.format, code.data);
+      const fileValue = fileName.split(".").at(0)
 
       // Code128 check
       if (code128Value !== null) {
-        if (code128Value !== fileName) {
+        if (code128Value !== fileValue) {
           return {
             status: 'tampered',
-            reason: `Code128 value "${code128Value}" does not match fileName "${fileName}" on page ${pageNumber}`,
+            reason: `Code128 value "${code128Value}" does not match fileValue "${fileValue}" on page ${pageNumber}`,
           };
         }
       }
@@ -108,10 +109,10 @@ export class VerificationService {
       // QR check
       if (qrValue !== null) {
         const qrFileName = qrValue.split('-')[0];
-        if (qrFileName !== fileName) {
+        if (qrFileName !== fileValue) {
           return {
             status: 'tampered',
-            reason: `QR code fileName "${qrFileName}" does not match fileName "${fileName}" on page ${pageNumber}`,
+            reason: `QR code fileName "${qrFileName}" does not match fileValue "${fileValue}" on page ${pageNumber}`,
           };
         }
       }
@@ -190,18 +191,12 @@ export class VerificationService {
 
     const codes = firstPageResult.result.codes;
     const code128 = codes.find((c) => c.format === 'Code128');
+    const fileValue = fileName.split(".").at(0)
 
-    if (!code128) {
-      return {
-        status: 'retry',
-        reason: 'File integrity check failed: Code128 barcode missing on first page',
-      };
-    }
-
-    if (code128.data !== fileName) {
+    if (code128?.data !== fileValue) {
       return {
         status: 'tampered',
-        reason: `File integrity check failed: Code128 "${code128.data}" !== fileName "${fileName}"`,
+        reason: `File integrity check failed: Code128 "${code128?.data}" !== fileValue "${fileValue}"`,
       };
     }
 
@@ -246,8 +241,10 @@ export class VerificationService {
     // }
 
     // Step 2: File correctness check (immediate exit)
+    // console.log("here is the context for verificatoin", context.pageResults, context.fileName)
     const fileCorrectnessResult = this.verifyFileCorrectness(context);
     if (fileCorrectnessResult?.status === 'tampered') {
+      // console.log("File correctness error")
       return fileCorrectnessResult;
     }
 
@@ -255,6 +252,7 @@ export class VerificationService {
     for (let pageNum = 1; pageNum <= context.totalPages; pageNum++) {
       const codeValueResult = this.verifyCodeValue(context, pageNum);
       if (codeValueResult?.status === 'tampered') {
+        // console.log("CodeValue mismatch error")
         return codeValueResult;
       }
 
@@ -267,10 +265,12 @@ export class VerificationService {
     const missingQRsResult = this.verifyMissingQRs(context);
     if (missingQRsResult) {
       // If missing QRs detected (marked as tampered), return early
+      // console.log("missing QR result error")
       return missingQRsResult;
     }
 
     // All checks passed
+    // console.log("Scan passed for this file")
     return { status: 'scan_passed' };
   }
 }

@@ -471,6 +471,8 @@ export class BatchOrchestrator {
         // Use complete results data: codes, scale, error, success for each page
         logResults = jobResult.results;
 
+        console.log("here is the verification result for the file", fileName, verificationResult)
+
         if (verificationResult?.status === 'tampered') {
           fileStatus = 'tampered';
           shouldRoute = true;
