@@ -264,12 +264,12 @@ export class VerificationService {
     }
 
     // Step 4: Missing QRs check (final decision, no early exit)
-    const missingQRsResult = this.verifyMissingQRs(context);
-    if (missingQRsResult) {
-      // If missing QRs detected (marked as tampered), return early
-      // console.log("missing QR result error")
-      return missingQRsResult;
-    }
+    // const missingQRsResult = this.verifyMissingQRs(context);
+    // if (missingQRsResult) {
+    //   // If missing QRs detected (marked as tampered), return early
+    //   // console.log("missing QR result error")
+    //   return missingQRsResult;
+    // }
 
     // All checks passed
     // console.log("Scan passed for this file")
