@@ -113,9 +113,12 @@ export class BatchLogger {
       return;
     }
 
+    console.log("[Logger] Here is the entry", entry.results["1"])
     // Add to buffer
     this.buffer.entries.push(entry);
     this.buffer.lastEntryTime = Date.now();
+
+    console.log("[Logger] Here is the buffer", this.buffer.entries[0].results["1"])
 
     console.log(`[Logger] Entry added: ${entry.fileName} (${entry.status})`);
   }
@@ -162,6 +165,8 @@ export class BatchLogger {
         entries: this.buffer.entries,
         stats,
       };
+
+      console.log("here is the final logs", finalLog.header, finalLog.entries)
 
       // Write to disk
       const logFile = this.getLogFilePath(batchId);

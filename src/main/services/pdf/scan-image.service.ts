@@ -10,7 +10,6 @@ export interface ScannerOptions {
 export interface BarcodeData {
   data: string;
   format: string;
-  position: unknown;
 }
 
 export interface ScanResult {
@@ -52,7 +51,6 @@ export class ScanImage {
         codes: results.map((result) => ({
           data: result.text,
           format: result.format,
-          position: result.position || null,
         })),
         error: null,
       };
