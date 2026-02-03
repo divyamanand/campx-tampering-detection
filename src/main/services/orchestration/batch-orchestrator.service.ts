@@ -400,31 +400,6 @@ export class BatchOrchestrator {
   }
 
   /**
-   * Extract simplified results from worker output
-   * Keeps only: codes [data, format], rotated, scale
-   */
-  private extractSimplifiedResults(workerResults: Record<number, any>): Record<number, any> {
-    const simplified: Record<number, any> = {};
-
-    for (const [pageNumStr, pageResult] of Object.entries(workerResults)) {
-      const pageNum = Number(pageNumStr);
-
-      if (!pageResult) continue;
-
-      simplified[pageNum] = {
-        codes: pageResult.codes?.map((code: any) => ({
-          data: code.data,
-          format: code.format,
-        })) || [],
-        rotated: pageResult.rotated ?? false,
-        scale: pageResult.scale ?? 1,
-      };
-    }
-
-    return simplified;
-  }
-
-  /**
    * Process a single batch (submit to worker pool)
    *
    * Flow:
@@ -507,8 +482,8 @@ export class BatchOrchestrator {
         const jobResult = result.value.result;
         const verificationResult = jobResult.verificationResult;
 
-        // Extract simplified results: codes with data and format, rotated, scale
-        logResults = this.extractSimplifiedResults(jobResult.results);
+        // Use complete results data: codes, scale, error, success for each page
+        logResults = jobResult.results;
 
         if (verificationResult?.status === 'tampered') {
           fileStatus = 'tampered';

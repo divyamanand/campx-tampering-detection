@@ -138,6 +138,8 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
       onPageComplete
     );
 
+    console.log("Result for the scan", scanResult.results)
+
     console.log(`[Worker] Scan complete: ${fileName}`);
 
     // Run verification on the scanned results
