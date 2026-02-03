@@ -495,6 +495,11 @@ export class BatchOrchestrator {
           shouldRoute = true;
           logStatus = 'SUCCESS';
           console.log(`[Orchestrator] File routed: ${fileName} → scan_passed/`);
+        } else if (verificationResult?.status === 'retry') {
+          fileStatus = 'retry';
+          shouldRoute = true;
+          logStatus = 'PARTIAL';
+          console.log(`[Orchestrator] File routed: ${fileName} → retry/`);
         } else {
           shouldRoute = false;
           logStatus = 'PARTIAL';
@@ -520,7 +525,7 @@ export class BatchOrchestrator {
         this.logger.addEntry(logEntry as any);
       }
 
-      // Submit routing job only for tampered and scan_passed files
+      // Submit routing job for tampered, scan_passed, or retry files
       if (shouldRoute && fileStatus) {
         try {
           await routingPool.submit({
