@@ -193,11 +193,13 @@ export class VerificationService {
     const code128 = codes.find((c) => c.format === 'Code128');
     const fileValue = fileName.split(".").at(0)
 
-    if (code128?.data !== fileValue) {
-      return {
-        status: 'tampered',
-        reason: `File integrity check failed: Code128 "${code128?.data}" !== fileValue "${fileValue}"`,
-      };
+    if (code128) {
+      if (code128.data !== fileValue) {
+        return {
+          status: 'tampered',
+          reason: `File integrity check failed: Code128 "${code128.data}" !== fileValue "${fileValue}"`,
+        };
+      }
     }
 
     return null;
