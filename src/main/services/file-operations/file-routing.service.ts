@@ -14,7 +14,7 @@
 import { rename, mkdir } from 'fs/promises';
 import path from 'path';
 
-export type FileStatus = 'tampered' | 'scan_passed';
+export type FileStatus = 'tampered' | 'scan_passed' | 'retry';
 
 /**
  * File Routing Service - Pure FS operations
@@ -27,6 +27,7 @@ export class FileRoutingService {
     const folderNames: Record<FileStatus, string> = {
       tampered: 'tampered',
       scan_passed: 'scan_passed',
+      retry: 'retry',
     };
     return folderNames[status];
   }
@@ -78,6 +79,7 @@ export class FileRoutingService {
     const displayNames: Record<FileStatus, string> = {
       tampered: 'Tampered',
       scan_passed: 'Scan Passed',
+      retry: 'Retry'
     };
     return displayNames[status];
   }

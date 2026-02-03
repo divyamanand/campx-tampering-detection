@@ -21,7 +21,8 @@ import type { PageProcessResult, PDFManagerConfig } from '../pdf/pdf-manager.ser
 
 export type VerificationResult =
   | { status: 'scan_passed' }
-  | { status: 'tampered'; reason: string };
+  | { status: 'tampered'; reason: string }
+  | {status: 'retry'; reason:string };
 
 export interface VerificationContext {
   fileName: string;
@@ -157,7 +158,7 @@ export class VerificationService {
 
     if (missingDetails.length > 0) {
       return {
-        status: 'tampered',
+        status: 'retry',
         reason: `Missing barcodes: ${missingDetails.join('; ')}`,
       };
     }
@@ -178,12 +179,13 @@ export class VerificationService {
     const { fileName, pageResults } = context;
 
     // Check Code128 on first page (most critical)
-    const firstPageResult = pageResults[1];
+    const firstPageResult = pageResults["1"];
     if (!firstPageResult || !firstPageResult.result.success || firstPageResult.result.codes.length === 0) {
-      return {
-        status: 'tampered',
-        reason: 'Unable to verify file correctness: No codes found on first page',
-      };
+      return null
+      // return {
+      //   status: 'retry',
+      //   reason: 'Unable to verify file correctness: No codes found on first page',
+      // };
     }
 
     const codes = firstPageResult.result.codes;
@@ -191,7 +193,7 @@ export class VerificationService {
 
     if (!code128) {
       return {
-        status: 'tampered',
+        status: 'retry',
         reason: 'File integrity check failed: Code128 barcode missing on first page',
       };
     }
@@ -238,10 +240,10 @@ export class VerificationService {
    */
   verify(context: VerificationContext): VerificationResult {
     // Step 1: Page count check (immediate exit)
-    const pageCountResult = this.verifyPageCount(context);
-    if (pageCountResult?.status === 'tampered') {
-      return pageCountResult;
-    }
+    // const pageCountResult = this.verifyPageCount(context);
+    // if (pageCountResult?.status === 'tampered') {
+    //   return pageCountResult;
+    // }
 
     // Step 2: File correctness check (immediate exit)
     const fileCorrectnessResult = this.verifyFileCorrectness(context);
