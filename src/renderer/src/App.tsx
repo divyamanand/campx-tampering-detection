@@ -24,7 +24,6 @@ const App = () => {
       try {
         // Load settings from global service
         const appSettings = await settingsService.getSettings()
-        console.log('✓ Global settings loaded:', appSettings)
         // Always show settings panel first for user to review/configure
         setView('settings')
       } catch (err) {
@@ -40,7 +39,6 @@ const App = () => {
 
   // Handle settings confirmation - move to scanner view
   const handleSettingsConfirmed = () => {
-    console.log('✓ Settings confirmed, moving to scanner')
     setView('scanner')
   }
 

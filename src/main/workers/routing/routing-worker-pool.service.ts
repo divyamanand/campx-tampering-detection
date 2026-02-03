@@ -40,7 +40,6 @@ export class RoutingWorkerPool {
    */
   initialize(): void {
     if (this.worker) {
-      console.log('[RoutingWorkerPool] Worker already initialized');
       return;
     }
 
@@ -63,7 +62,6 @@ export class RoutingWorkerPool {
       });
 
       this.worker.on('exit', (code) => {
-        console.log(`[RoutingWorkerPool] Worker exited with code ${code}`);
         this.worker = null;
         if (this.currentJob) {
           this.currentJob.reject(new Error('Worker exited unexpectedly'));
@@ -71,7 +69,6 @@ export class RoutingWorkerPool {
         }
       });
 
-      console.log('[RoutingWorkerPool] Routing worker initialized');
     } catch (error) {
       console.error('[RoutingWorkerPool] Failed to initialize worker:', error);
       throw error;
@@ -92,7 +89,6 @@ export class RoutingWorkerPool {
 
       // Add to queue
       this.queue.push(jobWithResolver);
-      console.log(`[RoutingWorkerPool] Job queued: ${job.fileName} (${job.finalStatus})`);
 
       // Try to process if worker is idle
       this.processNextJob();
@@ -115,7 +111,6 @@ export class RoutingWorkerPool {
     }
 
     this.currentJob = job;
-    console.log(`[RoutingWorkerPool] Assigning job: ${job.fileName}`);
 
     try {
       // Send job to worker (transfer ArrayBuffer if applicable)
@@ -151,7 +146,6 @@ export class RoutingWorkerPool {
         console.error(`[RoutingWorkerPool] Job failed: ${this.currentJob.fileName}`, error);
         this.currentJob.reject(new Error(error));
       } else {
-        console.log(`[RoutingWorkerPool] Job completed: ${this.currentJob.fileName}`);
         this.currentJob.resolve({ success: true });
       }
     } else if (type === 'error') {
@@ -175,7 +169,6 @@ export class RoutingWorkerPool {
       }
 
       this.worker.terminate().then((code) => {
-        console.log('[RoutingWorkerPool] Worker terminated');
         this.worker = null;
         this.currentJob = null;
         this.queue = [];

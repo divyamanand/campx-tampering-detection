@@ -1,270 +1,139 @@
 /**
- * Batch Logger - Crash-safe, batch-aware logging
+ * Batch Logger - Simple append-only logging
  *
  * Architecture:
- * - Workers return data, don't write logs
- * - Orchestrator owns log buffer
- * - In-memory entries during batch
- * - Flush to disk after batch completes
- * - Header written immediately (crash safety)
- * - Enables future resume functionality
+ * - Single logs.json file in directory/logs/
+ * - Each entry keyed by fileName
+ * - Simple append operations
+ * - No batch management, headers, or summaries
  */
 
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import path from 'path';
-import { randomUUID } from 'crypto';
-import type {
-  LogEntry,
-  BatchLogHeader,
-  BatchLogFile,
-  LogBuffer,
-  ProcessingStatus,
-} from '../../types/logEntry.types';
-import { createBatchLogHeader, calculateLogStats, createLogEntry } from '../../types/logEntry.types';
+import type { LogEntry } from '../../types/logEntry.types';
 
 /**
  * BatchLogger - Manages logging for batch processing
  */
 export class BatchLogger {
   /**
-   * Directory where batch logs are stored
+   * Path to logs directory
    */
   private logsDirectory: string;
 
   /**
-   * Current in-memory buffer
+   * Path to logs.json file
    */
-  private buffer: LogBuffer | null = null;
+  private logsFilePath: string;
+
+  /**
+   * In-memory entries for current batch
+   */
+  private entries: Record<string, LogEntry> = {};
 
   /**
    * Create logger for a specific directory
    */
   constructor(directory: string) {
-    this.logsDirectory = path.join(directory, 'logs', 'batches');
+    this.logsDirectory = path.join(directory, 'logs');
+    this.logsFilePath = path.join(this.logsDirectory, 'logs.json');
   }
 
   /**
-   * Initialize a new batch (STEP 4.6 - Crash safety)
-   * Writes header immediately to enable crash recovery
+   * Initialize a new batch
+   * Returns batch ID (not used but kept for API compatibility)
    */
-  async startBatch(batchSettings: {
+  async startBatch(_batchSettings: {
     directory: string;
     batchSize: number;
     pollingIntervalMs: number;
     totalFiles: number;
   }): Promise<string> {
-    const batchId = randomUUID();
-
-    // Create buffer
-    const header = createBatchLogHeader(batchId, {
-      batchSettings,
-      totalFiles: batchSettings.totalFiles,
-    });
-
-    this.buffer = {
-      batchId,
-      header,
-      entries: [],
-      flushed: false,
-      lastEntryTime: Date.now(),
-    };
+    // Clear entries for new batch
+    this.entries = {};
 
     // Create logs directory if needed
     try {
       await mkdir(this.logsDirectory, { recursive: true });
     } catch (error) {
-      console.warn('Failed to create logs directory:', error);
-      // Continue anyway - may fail on flush but that's ok
+      console.warn('[Logger] Failed to create logs directory:', error);
     }
 
-    // Write header immediately (crash safety)
-    // This proves the batch was started
-    try {
-      const headerFile = this.getLogFilePath(batchId);
-      const initialLog: BatchLogFile = {
-        version: '1.0',
-        header: { ...header, status: 'STARTED' },
-        entries: [],
-      };
-
-      await writeFile(headerFile, JSON.stringify(initialLog, null, 2));
-      console.log(`[Logger] Batch started: ${batchId}`);
-    } catch (error) {
-      console.warn(`[Logger] Failed to write batch header: ${error}`);
-      // Don't fail the batch if logging fails
-    }
-
-    return batchId;
+    return 'batch-' + Date.now();
   }
 
   /**
    * Add a log entry for a completed file
-   * Kept in memory until batch ends
+   * Stored in memory until batch completes
    */
   addEntry(entry: LogEntry): void {
-    if (!this.buffer) {
-      console.warn('[Logger] No active batch, entry dropped');
+    if (!entry.fileName) {
+      console.error('[Logger] Entry missing fileName, dropping');
       return;
     }
 
-    // Validate entry
-    if (!entry.status) {
-      console.error('[Logger] Entry missing status, dropping');
-      return;
-    }
-
-    console.log("[Logger] Here is the entry", entry.results["1"])
-    // Add to buffer
-    this.buffer.entries.push(entry);
-    this.buffer.lastEntryTime = Date.now();
-
-    console.log("[Logger] Here is the buffer", this.buffer.entries[0].results["1"])
-
-    console.log(`[Logger] Entry added: ${entry.fileName} (${entry.status})`);
+    // Store entry with fileName as key
+    this.entries[entry.fileName] = entry;
   }
 
   /**
    * Get current buffer size
-   * Used for progress calculation (STEP 4.8)
    */
   getBufferSize(): number {
-    return this.buffer?.entries.length || 0;
+    return Object.keys(this.entries).length;
   }
 
   /**
-   * Complete batch and flush logs to disk (STEP 4.5)
-   * Finalizes the batch log file with all entries
+   * Complete batch and flush logs to disk
+   * Appends entries to logs.json
    */
-  async completeBatch(status: 'COMPLETED' | 'FAILED' | 'CANCELLED', error?: Error): Promise<void> {
-    if (!this.buffer) {
-      console.warn('[Logger] No active batch to complete');
-      return;
-    }
-
-    const batchId = this.buffer.batchId;
-
+  async completeBatch(_status?: 'COMPLETED' | 'FAILED' | 'CANCELLED', _error?: Error): Promise<void> {
     try {
-      // Finalize header
-      this.buffer.header.status = status;
-      this.buffer.header.endTime = Date.now();
+      // Read existing logs.json if it exists
+      let allLogs: Record<string, LogEntry> = {};
 
-      if (error) {
-        this.buffer.header.error = {
-          message: error.message,
-          timestamp: Date.now(),
-        };
+      try {
+        const content = await readFile(this.logsFilePath, 'utf-8');
+        allLogs = JSON.parse(content);
+      } catch {
+        // File doesn't exist yet or can't be parsed, start fresh
+        allLogs = {};
       }
 
-      // Calculate statistics
-      const stats = calculateLogStats(this.buffer.entries);
+      // Merge current batch entries into all logs
+      allLogs = { ...allLogs, ...this.entries };
 
-      // Create final log file
-      const finalLog: BatchLogFile = {
-        version: '1.0',
-        header: this.buffer.header,
-        entries: this.buffer.entries,
-        stats,
-      };
+      // Write merged logs back to file
+      await writeFile(this.logsFilePath, JSON.stringify(allLogs, null, 2));
 
-      console.log("here is the final logs", finalLog.header, finalLog.entries)
-
-      // Write to disk
-      const logFile = this.getLogFilePath(batchId);
-      await writeFile(logFile, JSON.stringify(finalLog, null, 2));
-
-      this.buffer.flushed = true;
-
-      console.log(
-        `[Logger] Batch completed: ${batchId} (${this.buffer.entries.length} files, ${status})`
-      );
+      // Clear entries
+      this.entries = {};
     } catch (error) {
       console.error('[Logger] Failed to complete batch:', error);
-      // Don't throw - batch already processed
-    } finally {
-      // Clear buffer
-      this.buffer = null;
     }
   }
 
   /**
-   * Get log file path for a batch
-   * Format: logs/batches/batch_YYYY-MM-DDTHH-MM-SS.json
+   * Read logs from file
    */
-  private getLogFilePath(batchId: string): string {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('Z')[0];
-    return path.join(this.logsDirectory, `batch_${timestamp}.json`);
-  }
-
-  /**
-   * Read batch log from disk (for debugging/recovery)
-   */
-  async readBatchLog(batchId: string): Promise<BatchLogFile | null> {
+  async readLogs(): Promise<Record<string, LogEntry>> {
     try {
-      // Find the file (we need to search since we don't store exact names)
-      // For now, this is a placeholder
-      // In production, you'd maintain an index
-      return null;
+      const content = await readFile(this.logsFilePath, 'utf-8');
+      return JSON.parse(content);
     } catch (error) {
-      console.error('[Logger] Failed to read batch log:', error);
-      return null;
+      console.warn('[Logger] Failed to read logs:', error);
+      return {};
     }
   }
 
   /**
-   * Scan logs directory to detect incomplete batches (STEP 4.7)
-   * Returns list of incomplete batches that could be resumed
+   * Clear all logs
    */
-  async detectIncompleteBatches(): Promise<BatchLogFile[]> {
+  async clearLogs(): Promise<void> {
     try {
-      const { readdir } = await import('fs/promises');
-      const files = await readdir(this.logsDirectory);
-
-      const incompleteBatches: BatchLogFile[] = [];
-
-      for (const file of files) {
-        try {
-          const filePath = path.join(this.logsDirectory, file);
-          const content = await readFile(filePath, 'utf-8');
-          const logFile: BatchLogFile = JSON.parse(content);
-
-          // Check if batch is incomplete
-          if (logFile.header.status === 'STARTED') {
-            incompleteBatches.push(logFile);
-          }
-        } catch (error) {
-          // Skip files that can't be read
-          continue;
-        }
-      }
-
-      return incompleteBatches;
+      await writeFile(this.logsFilePath, JSON.stringify({}, null, 2));
     } catch (error) {
-      console.warn('[Logger] Failed to scan logs directory:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get processed files from logs (for resume logic)
-   * Extracts filenames from successful entries
-   */
-  async getProcessedFiles(): Promise<Set<string>> {
-    try {
-      const incompleteBatches = await this.detectIncompleteBatches();
-      const processed = new Set<string>();
-
-      for (const batch of incompleteBatches) {
-        for (const entry of batch.entries) {
-          if (entry.status === 'SUCCESS' || entry.status === 'PARTIAL') {
-            processed.add(entry.absolutePath);
-          }
-        }
-      }
-
-      return processed;
-    } catch (error) {
-      console.warn('[Logger] Failed to get processed files:', error);
-      return new Set();
+      console.error('[Logger] Failed to clear logs:', error);
     }
   }
 }

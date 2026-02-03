@@ -67,7 +67,6 @@ export class PDFManager {
         }
       }
 
-      console.log("here is the best result till now", bestResult.result.codes)
       return {
         success: bestResult.result.success,
         result: bestResult.result,

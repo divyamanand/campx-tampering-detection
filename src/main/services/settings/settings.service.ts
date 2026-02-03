@@ -41,11 +41,9 @@ export class SettingsService {
       const fileContent = await fs.readFile(this.settingsFilePath, 'utf-8');
       const loadedSettings = JSON.parse(fileContent);
       this.settings = { ...DEFAULT_SETTINGS, ...loadedSettings };
-      console.log('✓ Settings loaded from file');
       return this.settings;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        console.log('Settings file not found, using defaults');
         return this.settings;
       }
       console.warn(`Warning: settings.json is invalid, using defaults: ${error}`);
@@ -68,7 +66,6 @@ export class SettingsService {
         JSON.stringify(this.settings, null, 2),
         'utf-8'
       );
-      console.log('✓ Settings saved to file');
       return this.settings;
     } catch (error) {
       console.error('Failed to save settings:', error);

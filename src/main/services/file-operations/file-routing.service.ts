@@ -49,7 +49,6 @@ export class FileRoutingService {
    */
   async ensureFolder(folderPath: string): Promise<void> {
     try {
-      console.log("Folder path ensure function", folderPath)
       await mkdir(folderPath, { recursive: true });
     } catch (error) {
       console.error(`[FileRouter] Failed to create folder ${folderPath}:`, error);

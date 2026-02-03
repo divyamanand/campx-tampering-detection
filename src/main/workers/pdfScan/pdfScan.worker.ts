@@ -32,12 +32,10 @@ function initializeWorker(): void {
     // Import zxing setup if needed (already done at main process level)
     // PDFManager will use the already-initialized ZXing module
     pdfManager = new PDFManager();
-    console.log('[Worker] Initialized PDFManager');
   }
 
   if (!verificationService) {
     verificationService = new VerificationService();
-    console.log('[Worker] Initialized VerificationService');
   }
 }
 
@@ -119,7 +117,6 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
     // Convert ArrayBuffer to Uint8Array
     const uint8Array = new Uint8Array(buffer);
 
-    console.log(`[Worker] Starting scan: ${fileName}`);
 
     // Create callback for progress updates
     const onPageComplete = (data: {
@@ -138,9 +135,7 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
       onPageComplete
     );
 
-    console.log("Result for the scan", scanResult.results["1"].result.codes)
 
-    console.log(`[Worker] Scan complete: ${fileName}`);
 
     // Run verification on the scanned results
     let verificationResult: { status: 'scan_passed' | 'retry' | 'tampered'; reason?: string } | undefined;
@@ -161,7 +156,6 @@ async function processScan(request: WorkerScanRequest): Promise<void> {
           reason: 'reason' in verification ? verification.reason : undefined,
         };
 
-        console.log(`[Worker] Verification complete: ${fileName} → ${verification.status}`);
       } catch (verifyError) {
         console.error(`[Worker] Verification error for ${fileName}:`, verifyError);
         // Continue anyway - don't fail the whole job due to verification error
@@ -217,7 +211,6 @@ if (parentPort) {
     }
   });
 
-  console.log('[Worker] PDF scanning worker ready (will handle multiple jobs)');
 } else {
   console.error('[Worker] Not running in worker thread context');
   // Don't exit - allow parent to handle lifecycle

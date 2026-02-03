@@ -48,19 +48,12 @@ export const useBatchScan = (): UseBatchScanReturn => {
           return;
         }
 
-        console.log(
-          `[Progress Emitter] ${progress.type}: ${progress.totalProcessed}/${progress.totalFiles} files | ` +
-          `${progress.throughputPerSec?.toFixed(2) || '0'} f/s | ` +
-          `ETA: ${progress.estimatedRemainingMins !== undefined ? progress.estimatedRemainingMins.toFixed(2) + ' min' : 'N/A'}`
-        );
-
         setBatchProgress(progress);
 
         // Update scanning state based on progress type
         if (progress.type === 'batch-complete') {
           setScanning(false);
           setPaused(false);
-          console.log('[Progress Emitter] Batch completed successfully');
         } else if (progress.type === 'batch-error') {
           setScanning(false);
           setPaused(false);
@@ -118,7 +111,6 @@ export const useBatchScan = (): UseBatchScanReturn => {
 
   const startBatch = useCallback(
     async (settings: BatchSettings): Promise<void> => {
-      console.log('[useBatchScan] Starting batch from directory:', settings.directory);
 
       setScanning(true);
       setPaused(false);
@@ -135,14 +127,12 @@ export const useBatchScan = (): UseBatchScanReturn => {
           setScanning(false);
           console.error('[useBatchScan] Start batch failed:', errorMsg);
         } else {
-          console.log('[useBatchScan] Batch started successfully');
 
           // Fetch initial batch state after successful start
           try {
             const stateResponse = await scannerService.getBatchState();
             if (stateResponse.success && stateResponse.result) {
               setBatchState(stateResponse.result);
-              console.log('[useBatchScan] Initial batch state fetched');
             }
           } catch (err) {
             console.error('[useBatchScan] Failed to fetch initial batch state:', err);
@@ -159,14 +149,12 @@ export const useBatchScan = (): UseBatchScanReturn => {
   );
 
   const pause = useCallback(async (): Promise<void> => {
-    console.log('[useBatchScan] Pausing batch');
 
     try {
       const response = await scannerService.pauseBatch();
 
       if (response.success) {
         setPaused(true);
-        console.log('[useBatchScan] Batch paused successfully');
       } else {
         const errorMsg = response.error || 'Failed to pause batch';
         setError(errorMsg);
@@ -180,14 +168,12 @@ export const useBatchScan = (): UseBatchScanReturn => {
   }, []);
 
   const resume = useCallback(async (): Promise<void> => {
-    console.log('[useBatchScan] Resuming batch');
 
     try {
       const response = await scannerService.resumeBatch();
 
       if (response.success) {
         setPaused(false);
-        console.log('[useBatchScan] Batch resumed successfully');
       } else {
         const errorMsg = response.error || 'Failed to resume batch';
         setError(errorMsg);
@@ -201,7 +187,6 @@ export const useBatchScan = (): UseBatchScanReturn => {
   }, []);
 
   const stop = useCallback(async (): Promise<void> => {
-    console.log('[useBatchScan] Stopping batch');
 
     try {
       const response = await scannerService.stopBatch();
@@ -209,7 +194,6 @@ export const useBatchScan = (): UseBatchScanReturn => {
       if (response.success) {
         setScanning(false);
         setPaused(false);
-        console.log('[useBatchScan] Batch stopped successfully');
       } else {
         const errorMsg = response.error || 'Failed to stop batch';
         setError(errorMsg);
@@ -223,7 +207,6 @@ export const useBatchScan = (): UseBatchScanReturn => {
   }, []);
 
   const reset = useCallback(() => {
-    console.log('[useBatchScan] Resetting batch state');
     setScanning(false);
     setPaused(false);
     setBatchState(null);

@@ -40,16 +40,10 @@ export function initializeScannerHandlers(mainWindow?: BrowserWindow): void {
 
       // Register progress listener to forward to renderer (only once)
       if (!progressListenerRegistered) {
-        console.log('[Scanner] Registering progress callback (IPC bridge)');
-
         orchestrator.onProgress((progressEvent) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             // This is the actual IPC emission to renderer
             mainWindow.webContents.send('batch-progress', progressEvent);
-            console.log(
-              `[Scanner IPC] Sent batch-progress: ${progressEvent.type} ` +
-              `(${progressEvent.totalProcessed}/${progressEvent.totalFiles})`
-            );
           }
         });
 
@@ -58,8 +52,6 @@ export function initializeScannerHandlers(mainWindow?: BrowserWindow): void {
 
       // Start batch processing (will call emitProgress internally)
       await orchestrator.start(batchSettings);
-
-      console.log(`✓ [Scanner] Batch processing started: ${batchSettings.directory}`);
 
       return { success: true, message: 'Batch processing started' };
     } catch (error) {
@@ -82,8 +74,6 @@ export function initializeScannerHandlers(mainWindow?: BrowserWindow): void {
       const orchestrator = getOrchestrator();
       orchestrator.pause();
 
-      console.log('[Scanner] ✓ Batch processing paused');
-
       return { success: true, message: 'Batch processing paused' };
     } catch (error) {
       console.error('[Scanner] Failed to pause batch processing:', error);
@@ -105,8 +95,6 @@ export function initializeScannerHandlers(mainWindow?: BrowserWindow): void {
       const orchestrator = getOrchestrator();
       orchestrator.resume();
 
-      console.log('[Scanner] ✓ Batch processing resumed');
-
       return { success: true, message: 'Batch processing resumed' };
     } catch (error) {
       console.error('[Scanner] Failed to resume batch processing:', error);
@@ -127,8 +115,6 @@ export function initializeScannerHandlers(mainWindow?: BrowserWindow): void {
     try {
       const orchestrator = getOrchestrator();
       const result = await orchestrator.stop();
-
-      console.log('[Scanner] ✓ Batch processing stopped');
 
       return { success: true, result };
     } catch (error) {

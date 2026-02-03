@@ -120,7 +120,6 @@ export class BatchOrchestrator {
       throw new Error('Directory must be specified');
     }
 
-    console.log(`[Orchestrator] Starting batch scan: ${settings.directory}`);
 
     this.settings = settings;
     this.state.active = true;
@@ -150,7 +149,6 @@ export class BatchOrchestrator {
     }
 
     this.state.paused = true;
-    console.log('[Orchestrator] Batch paused');
     this.emitProgress('batch-progress');
   }
 
@@ -167,7 +165,6 @@ export class BatchOrchestrator {
     }
 
     this.state.paused = false;
-    console.log('[Orchestrator] Batch resumed');
     this.emitProgress('batch-progress');
     this.processingLoop();
   }
@@ -180,7 +177,6 @@ export class BatchOrchestrator {
       throw new Error('No batch processing running');
     }
 
-    console.log('[Orchestrator] Stopping batch...');
 
     this.state.active = false;
     this.stopPolling();
@@ -205,7 +201,6 @@ export class BatchOrchestrator {
         this.state.processedFiles > 0 ? Math.round(elapsed / this.state.processedFiles) : 0,
     };
 
-    console.log(`[Orchestrator] Batch stopped. Processed: ${result.totalProcessed} files`);
 
     return result;
   }
@@ -258,7 +253,6 @@ export class BatchOrchestrator {
       }
     }, this.settings.pollingIntervalMs);
 
-    console.log(`[Orchestrator] Polling started (interval: ${this.settings.pollingIntervalMs}ms)`);
   }
 
   /**
@@ -268,7 +262,6 @@ export class BatchOrchestrator {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
-      console.log('[Orchestrator] Polling stopped');
     }
   }
 
@@ -296,11 +289,9 @@ export class BatchOrchestrator {
       const totalCurrent = this.filesProcessed + this.filesRemainingInRoot;
       if (totalCurrent > this.totalFilesDiscovered) {
         this.totalFilesDiscovered = totalCurrent;
-        console.log(`[Orchestrator] Discovered ${totalCurrent} total files (${this.filesProcessed} processed, ${this.filesRemainingInRoot} remaining)`);
       }
 
       if (this.filesRemainingInRoot < previousRemaining) {
-        console.log(`[Orchestrator] Processed files removed from root (${previousRemaining} → ${this.filesRemainingInRoot})`);
       }
     } catch (error) {
       console.error('[Orchestrator] Failed to scan directory:', error);
@@ -344,7 +335,6 @@ export class BatchOrchestrator {
           });
         }
 
-        console.log(`[Orchestrator] Processing batch ${batchCount} (${batch.length} files, ${this.filesRemainingInRoot} remaining in root)`);
 
         // Process batch
         await this.processBatch(batch);
@@ -411,10 +401,6 @@ export class BatchOrchestrator {
   private async processBatch(files: string[]): Promise<void> {
     const pool = getWorkerPool();
     const routingPool = getRoutingWorkerPool();
-
-    console.log(
-      `[Orchestrator] Processing batch ${this.state.currentBatchIndex} (${files.length} files)`
-    );
 
     const batchStartTime = Date.now();
 
@@ -489,27 +475,22 @@ export class BatchOrchestrator {
           fileStatus = 'tampered';
           shouldRoute = true;
           logStatus = 'PARTIAL';
-          console.log(`[Orchestrator] File routed: ${fileName} → tampered/`);
         } else if (verificationResult?.status === 'scan_passed') {
           fileStatus = 'scan_passed';
           shouldRoute = true;
           logStatus = 'SUCCESS';
-          console.log(`[Orchestrator] File routed: ${fileName} → scan_passed/`);
         } else if (verificationResult?.status === 'retry') {
           fileStatus = 'retry';
           shouldRoute = true;
           logStatus = 'PARTIAL';
-          console.log(`[Orchestrator] File routed: ${fileName} → retry/`);
         } else {
           shouldRoute = false;
           logStatus = 'PARTIAL';
-          console.log(`[Orchestrator] File NOT routed: ${fileName} (verification undefined) - kept in main directory`);
         }
       } else {
         // Worker failed
         shouldRoute = false;
         logStatus = 'FAILED';
-        console.log(`[Orchestrator] File NOT routed: ${fileName} (worker failed) - kept in main directory`);
       }
 
       // Create simplified log entry
@@ -536,7 +517,6 @@ export class BatchOrchestrator {
             finalStatus: fileStatus,
             createdAt: Date.now(),
           });
-          console.log(`[Orchestrator] Routing job queued: ${fileName} (${fileStatus})`);
         } catch (routingError) {
           console.error(`[Orchestrator] Failed to route file ${fileName}:`, routingError);
         }
@@ -555,10 +535,6 @@ export class BatchOrchestrator {
     const batchDuration = Date.now() - batchStartTime;
     this.stats.totalTimeElapsed += batchDuration;
 
-    console.log(
-      `[Orchestrator] Batch complete: ${successes}/${files.length} succeeded (${batchDuration}ms, total processed: ${this.filesProcessed}/${this.totalFilesDiscovered})`
-    );
-
     if (failures > 0) {
       console.warn(`[Orchestrator] ${failures} files failed in batch`);
     }
@@ -572,7 +548,6 @@ export class BatchOrchestrator {
     // Force garbage collection if available (requires --expose-gc flag)
     if (global.gc) {
       global.gc();
-      console.log('[Orchestrator] Garbage collection triggered');
     }
 
     // Clear temporary arrays
@@ -622,14 +597,7 @@ export class BatchOrchestrator {
     };
 
     // Log progress for debugging
-    if (type === 'batch-progress') {
-      console.log(
-        `[Progress] Processed: ${this.filesProcessed}/${this.totalFilesDiscovered} | ` +
-          `Remaining: ${this.filesRemainingInRoot} | ` +
-          `Throughput: ${event.throughputPerSec} files/sec | ` +
-          `ETA: ${event.estimatedRemainingMins !== undefined ? event.estimatedRemainingMins.toFixed(2) + ' mins' : 'N/A'}`
-      );
-    } else if (type === 'batch-error') {
+    if (type === 'batch-error') {
       console.error(`[Progress] Error: ${errorMsg}`);
     }
 

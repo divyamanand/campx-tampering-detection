@@ -27,7 +27,6 @@ let routingService: FileRoutingService | null = null;
 function initializeWorker(): void {
   if (!routingService) {
     routingService = new FileRoutingService();
-    console.log('[RoutingWorker] Initialized FileRoutingService');
   }
 }
 
@@ -48,7 +47,6 @@ async function ensureFolderExists(folderPath: string): Promise<void> {
   try {
     await routingService!.ensureFolder(folderPath);
     createdFolders.add(folderPath);
-    console.log(`[RoutingWorker] Folder ensured: ${folderPath}`);
   } catch (error) {
     console.error(`[RoutingWorker] Failed to ensure folder ${folderPath}:`, error);
     throw error;
@@ -82,22 +80,18 @@ async function processRoutingJob(job: RoutingJobRequest): Promise<void> {
   }
 
   const { fileName, sourcePath, baseDir, finalStatus } = job;
-  console.log("Details from job", fileName, finalStatus)
 
   try {
-    console.log(`[RoutingWorker] Processing: ${fileName} (${finalStatus})`);
 
     // Step 1: Get destination path
     const destinationPath = routingService.getDestinationPath(baseDir, fileName, finalStatus);
     const destinationFolder = path.dirname(destinationPath);
-    console.log("Destination", destinationPath, destinationFolder)
     // Step 2: Ensure destination folder exists
     await ensureFolderExists(destinationFolder);
 
     // Step 3: Move file atomically
     await routingService.moveFile(sourcePath, destinationPath);
 
-    console.log(`[RoutingWorker] ✓ Moved: ${fileName} → ${finalStatus}/`);
 
     // Send success result
     sendResult(true);
@@ -127,7 +121,6 @@ if (parentPort) {
       }
 
       // Process the job
-      console.log("The required job processing",job)
       await processRoutingJob(job);
     } else {
       console.error('[RoutingWorker] Invalid job request:', job);
@@ -135,7 +128,6 @@ if (parentPort) {
     }
   });
 
-  console.log('[RoutingWorker] PDF routing worker ready (listening for jobs via parentPort)');
 } else {
   console.error('[RoutingWorker] Not running in worker thread context');
   process.exit(1);
